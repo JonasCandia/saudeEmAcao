@@ -15,6 +15,8 @@ import { PessoaDetalhes } from './pages/PessoaDetalhes';
 import { AreasLista } from './pages/AreasLista';
 import { RuasLista } from './pages/RuasLista';
 import { VisitasPendentes } from './pages/VisitasPendentes';
+import { CasasLista } from './pages/CasasLista';
+import { AgenteTerritorio } from './pages/AgenteTerritorio';
 
 // Guard for protected items
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -147,6 +149,26 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <VisitasPendentes />
+              </ProtectedRoute>
+            } 
+          />
+
+          {/* Protected casas route */}
+          <Route 
+            path="/casas" 
+            element={
+              <ProtectedRoute>
+                <CasasLista />
+              </ProtectedRoute>
+            } 
+          />
+
+          {/* Protected territory profile route */}
+          <Route 
+            path="/agente-territorio" 
+            element={
+              <ProtectedRoute>
+                <AgenteTerritorio />
               </ProtectedRoute>
             } 
           />

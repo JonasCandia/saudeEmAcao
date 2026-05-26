@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { collection, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
 import { Pessoa, OperationType } from '../types';
+import { canAccessTerritory } from '../utils/territoryScope';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Plus, 
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export const PessoasLista: React.FC = () => {
-  const { user } = useAuth();
+  const { user, areaIds, ruaIdsExtras, legacyAccess } = useAuth();
   const navigate = useNavigate();
 
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
@@ -48,7 +49,15 @@ export const PessoasLista: React.FC = () => {
       (snapshot) => {
         const list: Pessoa[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Pessoa);
+          const pessoa = { id: doc.id, ...doc.data() } as Pessoa;
+          if (!canAccessTerritory({
+            areaId: pessoa.areaId,
+            ruaId: pessoa.ruaId,
+            scope: { legacyAccess, areaIds, ruaIdsExtras },
+          })) {
+            return;
+          }
+          list.push(pessoa);
         });
         // Sort alphabetically by patient name
         list.sort((a, b) => a.nome.localeCompare(b.nome));
@@ -66,7 +75,7 @@ export const PessoasLista: React.FC = () => {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, legacyAccess, areaIds, ruaIdsExtras]);
 
   // 2. Filter list locally by search term
   const filteredPessoas = useMemo(() => {
@@ -178,7 +187,74 @@ export const PessoasLista: React.FC = () => {
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           {filteredPessoas.length > 0 ? (
-            <div className="overflow-x-auto">
+            <>
+              <div className="md:hidden divide-y divide-slate-100">
+                {paginatedPessoas.map((pessoa) => (
+                  <div key={pessoa.id} className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <Link to={`/pessoa/${pessoa.id}`} className="font-semibold text-slate-900 text-sm block truncate hover:text-emerald-700">
+                          {pessoa.nome}
+                        </Link>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {pessoa.idade} anos, {pessoa.sexo}
+                        </p>
+                      </div>
+                      <span className="text-[10px] px-2 py-1 rounded-md font-bold bg-slate-100 text-slate-600 shrink-0">
+                        {pessoa.areaAtendimento}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-600">
+                      <p className="truncate">{pessoa.rua}, {pessoa.casa}</p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {pessoa.doencas && pessoa.doencas.length > 0 ? (
+                        pessoa.doencas.map(disease => (
+                          <span
+                            key={disease}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${getDiseaseBadgeStyle(disease)}`}
+                          >
+                            {disease}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-slate-300 italic">Nenhuma informada</span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <Link
+                        to={`/pessoa/${pessoa.id}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold"
+                        id={`btn-view-mobile-${pessoa.id}`}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Visitas</span>
+                      </Link>
+                      <Link
+                        to={`/pessoa/editar/${pessoa.id}`}
+                        className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-all"
+                        title="Editar cadastro"
+                        id={`btn-edit-mobile-${pessoa.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Link>
+                      <button
+                        onClick={() => setPessoaToDelete(pessoa)}
+                        className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+                        title="Excluir cadastro"
+                        id={`btn-delete-mobile-${pessoa.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-55 border-b border-slate-200 text-slate-500 font-semibold text-xs uppercase tracking-wider">
@@ -271,7 +347,8 @@ export const PessoasLista: React.FC = () => {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           ) : (
             <div className="py-16 text-center">
               <div className="p-3 bg-slate-50 text-slate-400 inline-block rounded-2xl mb-4">

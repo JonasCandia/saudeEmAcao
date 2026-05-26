@@ -1,169 +1,204 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from 'firebase/firestore';
+import { ArrowLeft, CheckSquare, Save, Square } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc, setDoc, addDoc, collection, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
-import { Pessoa, OperationType } from '../types';
-import { 
-  HeartPulse, 
-  ArrowLeft, 
-  Save, 
-  MapPin, 
-  User, 
-  Calendar,
-  Layers,
-  HeartCrack,
-  CheckSquare,
-  Square
-} from 'lucide-react';
+import { OperationType, Pessoa } from '../types';
+import { canAccessTerritory } from '../utils/territoryScope';
+import {
+  buildPessoaPayloadFromWizard,
+  calculateAgeFromBirthDate,
+  createDefaultPessoaWizardFormData,
+  hydratePessoaWizardFormDataFromPessoa,
+  PessoaWizardFormData,
+  validateWizardStep,
+} from '../utils/pessoaSchema';
 
-const calculateAgeFromBirthDate = (value: string) => {
-  if (!value) return '';
+type AreaOption = { id: string; nome: string };
+type RuaOption = { id: string; nome: string; areaId: string };
+type CasaOption = { id: string; identificacao: string; complemento?: string; areaId: string; ruaId: string };
 
-  const birthDate = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(birthDate.getTime())) return '';
+const STEPS = [
+  'Identificação',
+  'Endereço e Território',
+  'Socioeconômico',
+  'Saúde e Triagem',
+];
 
-  const today = new Date();
-  let years = today.getFullYear() - birthDate.getFullYear();
-  const monthDelta = today.getMonth() - birthDate.getMonth();
+const CONDICOES_OPTIONS = [
+  'Hipertensão',
+  'Diabetes',
+  'Asma',
+  'DPOC/Enfisema',
+  'AVC/Derrame',
+  'Infarto',
+  'Doença cardíaca',
+  'Câncer',
+  'Tuberculose',
+  'Nenhuma',
+  'Outros',
+];
 
-  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) {
-    years -= 1;
-  }
+const DEFICIENCIAS_OPTIONS = ['Auditiva', 'Visual', 'Física', 'Intelectual/Cognitiva', 'TEA', 'Outra'];
 
-  return Math.max(years, 0);
-};
-
-const trimToUndefined = (value: string) => {
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
-};
+const CRIANCAS_COM_QUEM_FICA_OPTIONS = [
+  'Adulto responsável',
+  'Outra(s) criança(s)',
+  'Adolescente',
+  'Sozinha',
+  'Creche',
+  'Outro',
+];
 
 export const PessoaForm: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, areaIds, ruaIdsExtras, legacyAccess } = useAuth();
 
-  const isEditMode = !!id;
+  const isEditMode = Boolean(id);
 
-  const [nome, setNome] = useState('');
-  const [nomeSocial, setNomeSocial] = useState('');
-  const [idade, setIdade] = useState<number | ''>('');
-  const [dataNascimento, setDataNascimento] = useState('');
-  const [sexo, setSexo] = useState<'Masculino' | 'Feminino' | 'Outro'>('Feminino');
-  const [cpf, setCpf] = useState('');
-  const [cns, setCns] = useState('');
-  const [contato, setContato] = useState('');
-  const [email, setEmail] = useState('');
-  const [selectedDiseases, setSelectedDiseases] = useState<string[]>([]);
-  const [fumante, setFumante] = useState(false);
-  const [problemaRins, setProblemaRins] = useState(false);
-  const [responsavelFamiliar, setResponsavelFamiliar] = useState(false);
-  const [racaCor, setRacaCor] = useState('');
-  const [nacionalidade, setNacionalidade] = useState('');
-  const [municipioEstado, setMunicipioEstado] = useState('');
-  const [nomeMae, setNomeMae] = useState('');
-  const [nomePai, setNomePai] = useState('');
-  const [nis, setNis] = useState('');
-  const [areaAtendimento, setAreaAtendimento] = useState('');
-  const [rua, setRua] = useState('');
-  const [casa, setCasa] = useState('');
-  const [areaId, setAreaId] = useState('');
-  const [ruaId, setRuaId] = useState('');
-  const [areasList, setAreasList] = useState<any[]>([]);
-  const [ruasList, setRuasList] = useState<any[]>([]);
+  const [formData, setFormData] = useState<PessoaWizardFormData>(createDefaultPessoaWizardFormData());
+  const [currentStep, setCurrentStep] = useState(0);
+
+  const [areasList, setAreasList] = useState<AreaOption[]>([]);
+  const [ruasList, setRuasList] = useState<RuaOption[]>([]);
+  const [casasList, setCasasList] = useState<CasaOption[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(isEditMode);
   const [error, setError] = useState<string | null>(null);
 
-  const diseaseOptions = [
-    'Hipertensão',
-    'Diabetes',
-    'Asma',
-    'Obesidade',
-    'Nenhuma',
-    'Outros'
-  ];
+  const idadeCalculada = useMemo(
+    () => calculateAgeFromBirthDate(formData.identificacao.dataNascimento),
+    [formData.identificacao.dataNascimento]
+  );
 
-  // Subscription to all Areas and Ruas on Mount
+  const ruasFiltradas = useMemo(() => {
+    if (!formData.enderecoTerritorio.areaId) return [];
+    return ruasList.filter((rua) => rua.areaId === formData.enderecoTerritorio.areaId);
+  }, [ruasList, formData.enderecoTerritorio.areaId]);
+
+  const casasFiltradas = useMemo(() => {
+    if (!formData.enderecoTerritorio.ruaId) return [];
+    return casasList.filter((casa) => casa.ruaId === formData.enderecoTerritorio.ruaId);
+  }, [casasList, formData.enderecoTerritorio.ruaId]);
+
   useEffect(() => {
     if (!user) return;
-    
-    // Fetch areas
+
     const unsubAreas = onSnapshot(
       query(collection(db, 'areas'), where('ownerId', '==', user.uid)),
       (snap) => {
-        const list: any[] = [];
-        snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-        list.sort((a,b) => a.nome.localeCompare(b.nome));
+        const list: AreaOption[] = [];
+        snap.forEach((item) => {
+          const data = item.data() as { nome?: string };
+          if (!legacyAccess && !areaIds.includes(item.id)) {
+            return;
+          }
+          list.push({ id: item.id, nome: data.nome || '' });
+        });
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
         setAreasList(list);
       }
     );
 
-    // Fetch ruas
     const unsubRuas = onSnapshot(
       query(collection(db, 'ruas'), where('ownerId', '==', user.uid)),
       (snap) => {
-        const list: any[] = [];
-        snap.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
-        list.sort((a,b) => a.nome.localeCompare(b.nome));
+        const list: RuaOption[] = [];
+        snap.forEach((item) => {
+          const data = item.data() as { nome?: string; areaId?: string };
+          if (!canAccessTerritory({
+            areaId: data.areaId,
+            ruaId: item.id,
+            scope: { legacyAccess, areaIds, ruaIdsExtras },
+          })) {
+            return;
+          }
+          list.push({ id: item.id, nome: data.nome || '', areaId: data.areaId || '' });
+        });
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
         setRuasList(list);
+      }
+    );
+
+    const unsubCasas = onSnapshot(
+      query(collection(db, 'casas'), where('ownerId', '==', user.uid)),
+      (snap) => {
+        const list: CasaOption[] = [];
+        snap.forEach((item) => {
+          const data = item.data() as {
+            identificacao?: string;
+            complemento?: string;
+            areaId?: string;
+            ruaId?: string;
+          };
+          if (!canAccessTerritory({
+            areaId: data.areaId,
+            ruaId: data.ruaId,
+            scope: { legacyAccess, areaIds, ruaIdsExtras },
+          })) {
+            return;
+          }
+          list.push({
+            id: item.id,
+            identificacao: data.identificacao || '',
+            complemento: data.complemento,
+            areaId: data.areaId || '',
+            ruaId: data.ruaId || '',
+          });
+        });
+        list.sort((a, b) => a.identificacao.localeCompare(b.identificacao));
+        setCasasList(list);
       }
     );
 
     return () => {
       unsubAreas();
       unsubRuas();
+      unsubCasas();
     };
-  }, [user]);
+  }, [user, legacyAccess, areaIds, ruaIdsExtras]);
 
-  // 1. Fetch Patient details if in editing mode
   useEffect(() => {
     if (!isEditMode || !id || !user) return;
 
     const fetchPessoa = async () => {
       const path = `pessoas/${id}`;
       try {
-        const docRef = doc(db, 'pessoas', id);
-        const snapshot = await getDoc(docRef);
-        
-        if (snapshot.exists()) {
-          const data = snapshot.data() as Pessoa;
-          
-          if (data.ownerId !== user.uid) {
-            setError('Você não possui permissão para editar os dados desse residente.');
-            setFetching(false);
-            return;
-          }
+        const pessoaRef = doc(db, 'pessoas', id);
+        const snapshot = await getDoc(pessoaRef);
 
-          setNome(data.nome);
-          setIdade(data.idade);
-          setNomeSocial(data.nomeSocial || '');
-          setDataNascimento(data.dataNascimento || '');
-          setSexo(data.sexo);
-          setCpf(data.cpf || '');
-          setCns(data.cns || '');
-          setContato(data.contato || '');
-          setEmail(data.email || '');
-          setSelectedDiseases(data.doencas || []);
-          setFumante(Boolean(data.fumante));
-          setProblemaRins(Boolean(data.problemaRins));
-          setResponsavelFamiliar(Boolean(data.responsavelFamiliar));
-          setRacaCor(data.racaCor || '');
-          setNacionalidade(data.nacionalidade || '');
-          setMunicipioEstado(data.municipioEstado || '');
-          setNomeMae(data.nomeMae || '');
-          setNomePai(data.nomePai || '');
-          setNis(data.nis || '');
-          setAreaAtendimento(data.areaAtendimento);
-          setRua(data.rua);
-          setCasa(data.casa);
-          setAreaId(data.areaId || '');
-          setRuaId(data.ruaId || '');
-        } else {
-          setError('Residente não encontrado no sistema.');
+        if (!snapshot.exists()) {
+          setError('Cadastro não encontrado.');
+          return;
         }
+
+        const pessoa = snapshot.data() as Pessoa;
+        if (pessoa.ownerId !== user.uid) {
+          setError('Você não possui permissão para editar este cadastro.');
+          return;
+        }
+        if (!canAccessTerritory({
+          areaId: pessoa.areaId,
+          ruaId: pessoa.ruaId,
+          scope: { legacyAccess, areaIds, ruaIdsExtras },
+        })) {
+          setError('Este cadastro está fora do seu escopo territorial.');
+          return;
+        }
+
+        setFormData(hydratePessoaWizardFormDataFromPessoa(pessoa));
       } catch (err) {
         try {
           handleFirestoreError(err, OperationType.GET, path);
@@ -176,129 +211,142 @@ export const PessoaForm: React.FC = () => {
     };
 
     fetchPessoa();
-  }, [id, isEditMode, user]);
+  }, [id, isEditMode, user, legacyAccess, areaIds, ruaIdsExtras]);
 
-  // 2. Handle Diseases checkbox toggle
-  const handleDiseaseToggle = (disease: string) => {
-    if (disease === 'Nenhuma') {
-      // Toggle none: unselect all others and select none
-      if (selectedDiseases.includes('Nenhuma')) {
-        setSelectedDiseases([]);
-      } else {
-        setSelectedDiseases(['Nenhuma']);
-      }
-    } else {
-      // Toggle specific disease
-      let updated = [...selectedDiseases].filter(d => d !== 'Nenhuma');
-      if (updated.includes(disease)) {
-        updated = updated.filter(d => d !== disease);
-      } else {
-        updated.push(disease);
-      }
-      setSelectedDiseases(updated);
-    }
+  const updateIdentificacao = (field: keyof PessoaWizardFormData['identificacao'], value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      identificacao: {
+        ...prev.identificacao,
+        [field]: value,
+      },
+    }));
   };
 
-  // 3. Submit Handler
+  const updateEndereco = (field: keyof PessoaWizardFormData['enderecoTerritorio'], value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      enderecoTerritorio: {
+        ...prev.enderecoTerritorio,
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateSocio = (field: keyof PessoaWizardFormData['socioeconomico'], value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      socioeconomico: {
+        ...prev.socioeconomico,
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateSaude = (field: keyof PessoaWizardFormData['saude'], value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      saude: {
+        ...prev.saude,
+        [field]: value,
+      },
+    }));
+  };
+
+  const toggleListValue = (values: string[] | undefined, value: string) => {
+    const current = values || [];
+
+    if (value === 'Nenhuma') {
+      return current.includes('Nenhuma') ? [] : ['Nenhuma'];
+    }
+
+    const withoutNone = current.filter((item) => item !== 'Nenhuma');
+    return withoutNone.includes(value)
+      ? withoutNone.filter((item) => item !== value)
+      : [...withoutNone, value];
+  };
+
+  const validateStepOrSetError = (step: number): boolean => {
+    const issues = validateWizardStep(step, formData);
+    if (issues.length === 0) {
+      setError(null);
+      return true;
+    }
+
+    setError(issues[0]);
+    return false;
+  };
+
+  const handleNext = () => {
+    if (!validateStepOrSetError(currentStep)) return;
+    setCurrentStep((prev) => Math.min(prev + 1, STEPS.length - 1));
+  };
+
+  const handleBack = () => {
+    setError(null);
+    setCurrentStep((prev) => Math.max(prev - 1, 0));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    if (!nome.trim() || idade === '' || !areaAtendimento.trim() || !rua.trim() || !casa.trim()) {
-      setError('Por favor, preencha todos os campos obrigatórios.');
+    const step0Issues = validateWizardStep(0, formData);
+    const step1Issues = validateWizardStep(1, formData);
+
+    if (step0Issues.length > 0 || step1Issues.length > 0) {
+      if (step0Issues.length > 0) {
+        setError(step0Issues[0]);
+        setCurrentStep(0);
+      } else {
+        setError(step1Issues[0]);
+        setCurrentStep(1);
+      }
       return;
     }
 
     setLoading(true);
     setError(null);
 
-    // Clean diseases list (if empty, default to "Nenhuma")
-    const diseasesToSave = selectedDiseases.length > 0 ? selectedDiseases : ['Nenhuma'];
-
-    const optionalFields = {
-      nomeSocial: trimToUndefined(nomeSocial),
-      dataNascimento: trimToUndefined(dataNascimento),
-      cpf: trimToUndefined(cpf),
-      cns: trimToUndefined(cns),
-      contato: trimToUndefined(contato),
-      email: trimToUndefined(email),
-      racaCor: trimToUndefined(racaCor),
-      nacionalidade: trimToUndefined(nacionalidade),
-      municipioEstado: trimToUndefined(municipioEstado),
-      nomeMae: trimToUndefined(nomeMae),
-      nomePai: trimToUndefined(nomePai),
-      nis: trimToUndefined(nis),
-      ...(fumante ? { fumante: true } : {}),
-      ...(problemaRins ? { problemaRins: true } : {}),
-      ...(responsavelFamiliar ? { responsavelFamiliar: true } : {})
-    };
-
     try {
       if (isEditMode && id) {
-        // Edit record
-        // In the security rules: incoming().createdAt == existing().createdAt
-        // We shouldn't modify ownerId, and createdAt.
-        // Let's first fetch the existing document to assert we preserve createdAt & ownerId
-        const docRef = doc(db, 'pessoas', id);
-        const existingSnap = await getDoc(docRef);
+        const pessoaRef = doc(db, 'pessoas', id);
+        const existingSnap = await getDoc(pessoaRef);
         if (!existingSnap.exists()) {
-          throw new Error('Incapaz de localizar cadastro original para alteração.');
+          throw new Error('Cadastro original não encontrado para atualização.');
         }
-        const existingData = existingSnap.data();
 
-        const path = `pessoas/${id}`;
-        
-        const payload: any = {
-          nome: nome.trim(),
-          idade: Number(idade),
-          ...optionalFields,
-          sexo,
-          doencas: diseasesToSave,
-          areaAtendimento: areaAtendimento.trim(),
-          rua: rua.trim(),
-          casa: casa.trim(),
-          createdAt: existingData.createdAt, // preserved as required
-          updatedAt: serverTimestamp(), // updated to current server timer
-          ownerId: user.uid // preserved
-        };
-        if (areaId) payload.areaId = areaId;
-        if (ruaId) payload.ruaId = ruaId;
+        const existingPessoa = existingSnap.data() as Pessoa;
+        const basePayload = buildPessoaPayloadFromWizard({
+          data: formData,
+          ownerId: user.uid,
+          existing: existingPessoa,
+        });
 
-        await setDoc(docRef, payload);
+        await setDoc(pessoaRef, {
+          ...basePayload,
+          createdAt: existingPessoa.createdAt,
+          updatedAt: serverTimestamp(),
+          ownerId: existingPessoa.ownerId,
+        });
         navigate(`/pessoa/${id}`);
       } else {
-        // Create record
-        // In the safety rules: incoming().createdAt == request.time & incoming().updatedAt == request.time
-        // And document ID must match isValidId
-        // Let's generate a secure alphabetical/numerical ID to avoid permissions rejection
-        const newDocRef = doc(collection(db, 'pessoas')); // auto-generate standard Firestore ID
-        const path = `pessoas/${newDocRef.id}`;
-        
-        const payload: any = {
-          nome: nome.trim(),
-          idade: Number(idade),
-          ...optionalFields,
-          sexo,
-          doencas: diseasesToSave,
-          areaAtendimento: areaAtendimento.trim(),
-          rua: rua.trim(),
-          casa: casa.trim(),
+        const newDocRef = doc(collection(db, 'pessoas'));
+        const basePayload = buildPessoaPayloadFromWizard({
+          data: formData,
+          ownerId: user.uid,
+        });
+
+        await setDoc(newDocRef, {
+          ...basePayload,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          ownerId: user.uid
-        };
-        if (areaId) payload.areaId = areaId;
-        if (ruaId) payload.ruaId = ruaId;
-
-        await setDoc(newDocRef, payload);
+        });
         navigate('/pessoas');
       }
-    } catch (err: any) {
-      console.error(err);
+    } catch (err) {
       try {
-        const operation = isEditMode ? OperationType.UPDATE : OperationType.CREATE;
-        const recordId = isEditMode && id ? id : 'nova-pessoa';
-        handleFirestoreError(err, operation, `pessoas/${recordId}`);
+        handleFirestoreError(err, isEditMode ? OperationType.UPDATE : OperationType.CREATE, 'pessoas');
       } catch (formattedError: any) {
         setError(JSON.parse(formattedError.message).error);
       }
@@ -307,18 +355,402 @@ export const PessoaForm: React.FC = () => {
     }
   };
 
+  const renderStep = () => {
+    if (currentStep === 0) {
+      return (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nome completo *</label>
+              <input
+                type="text"
+                value={formData.identificacao.nomeCompleto}
+                onChange={(e) => updateIdentificacao('nomeCompleto', e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                placeholder="Nome sem abreviações"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">CPF/CNS *</label>
+              <input
+                type="text"
+                value={formData.identificacao.cpfCnsCidadao}
+                onChange={(e) => updateIdentificacao('cpfCnsCidadao', e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                placeholder="Somente números"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Data de nascimento *</label>
+              <input
+                type="date"
+                value={formData.identificacao.dataNascimento}
+                onChange={(e) => updateIdentificacao('dataNascimento', e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Idade calculada</label>
+              <input
+                type="text"
+                readOnly
+                value={idadeCalculada === null ? 'Aguardando data válida' : `${idadeCalculada} anos`}
+                className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Sexo *</label>
+              <select
+                value={formData.identificacao.sexo}
+                onChange={(e) => updateIdentificacao('sexo', e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              >
+                <option value="Feminino">Feminino</option>
+                <option value="Masculino">Masculino</option>
+                <option value="Outro">Outro</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nome social</label>
+              <input
+                type="text"
+                value={formData.identificacao.nomeSocial || ''}
+                onChange={(e) => updateIdentificacao('nomeSocial', e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Raça/Cor</label>
+              <select
+                value={formData.identificacao.racaCor || ''}
+                onChange={(e) => updateIdentificacao('racaCor', e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              >
+                <option value="">Selecionar</option>
+                <option value="Branca">Branca</option>
+                <option value="Preta">Preta</option>
+                <option value="Parda">Parda</option>
+                <option value="Amarela">Amarela</option>
+                <option value="Indígena">Indígena</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Nome da mãe</label>
+              <input
+                type="text"
+                value={formData.identificacao.nomeMae || ''}
+                onChange={(e) => updateIdentificacao('nomeMae', e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (currentStep === 1) {
+      return (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Área de atendimento *</label>
+              {areasList.length > 0 ? (
+                <select
+                  value={formData.enderecoTerritorio.areaId || ''}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const selected = areasList.find((area) => area.id === selectedId);
+                    updateEndereco('areaId', selectedId || undefined);
+                    updateEndereco('areaAtendimento', selected?.nome || '');
+                    updateEndereco('ruaId', undefined);
+                    updateEndereco('casaId', undefined);
+                    updateEndereco('rua', '');
+                  }}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                >
+                  <option value="">Selecione</option>
+                  {areasList.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.nome}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={formData.enderecoTerritorio.areaAtendimento}
+                  onChange={(e) => updateEndereco('areaAtendimento', e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Logradouro *</label>
+              {ruasFiltradas.length > 0 ? (
+                <select
+                  value={formData.enderecoTerritorio.ruaId || ''}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const selected = ruasFiltradas.find((rua) => rua.id === selectedId);
+                    updateEndereco('ruaId', selectedId || undefined);
+                    updateEndereco('casaId', undefined);
+                    updateEndereco('rua', selected?.nome || '');
+                  }}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                  disabled={!formData.enderecoTerritorio.areaId}
+                >
+                  <option value="">Selecione</option>
+                  {ruasFiltradas.map((rua) => (
+                    <option key={rua.id} value={rua.id}>
+                      {rua.nome}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={formData.enderecoTerritorio.rua}
+                  onChange={(e) => updateEndereco('rua', e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Casa cadastrada</label>
+              {casasFiltradas.length > 0 ? (
+                <select
+                  value={formData.enderecoTerritorio.casaId || ''}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const selected = casasFiltradas.find((casa) => casa.id === selectedId);
+                    updateEndereco('casaId', selectedId || undefined);
+                    if (selected) {
+                      const nomeCasa = selected.complemento
+                        ? `${selected.identificacao} - ${selected.complemento}`
+                        : selected.identificacao;
+                      updateEndereco('casa', nomeCasa);
+                    }
+                  }}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                  disabled={!formData.enderecoTerritorio.ruaId}
+                >
+                  <option value="">Selecione</option>
+                  {casasFiltradas.map((casa) => (
+                    <option key={casa.id} value={casa.id}>
+                      {casa.complemento
+                        ? `${casa.identificacao} - ${casa.complemento}`
+                        : casa.identificacao}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-500">
+                  Nenhuma casa cadastrada para a rua selecionada.
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Casa/Número *</label>
+              <input
+                type="text"
+                value={formData.enderecoTerritorio.casa}
+                onChange={(e) => updateEndereco('casa', e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Microárea</label>
+              <input
+                type="text"
+                value={formData.enderecoTerritorio.microarea || ''}
+                onChange={(e) => updateEndereco('microarea', e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Fora da área?</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateEndereco('foraArea', true)}
+                  className={`px-4 py-2 rounded-lg border text-sm font-semibold ${
+                    formData.enderecoTerritorio.foraArea ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}
+                >
+                  Sim
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateEndereco('foraArea', false)}
+                  className={`px-4 py-2 rounded-lg border text-sm font-semibold ${
+                    !formData.enderecoTerritorio.foraArea ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}
+                >
+                  Não
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (currentStep === 2) {
+      return (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Situação no mercado de trabalho</label>
+              <select
+                value={formData.socioeconomico.situacaoMercadoTrabalho || ''}
+                onChange={(e) => updateSocio('situacaoMercadoTrabalho', e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              >
+                <option value="">Selecionar</option>
+                <option value="Empregado">Empregado</option>
+                <option value="Assalariado sem carteira">Assalariado sem carteira</option>
+                <option value="Autônomo com previdência">Autônomo com previdência</option>
+                <option value="Autônomo sem previdência">Autônomo sem previdência</option>
+                <option value="Desempregado">Desempregado</option>
+                <option value="Não trabalha">Não trabalha</option>
+                <option value="Servidor público">Servidor público</option>
+                <option value="Outro">Outro</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Frequenta escola/creche?</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateSocio('frequentaEscolaCreche', true)}
+                  className={`px-4 py-2 rounded-lg border text-sm font-semibold ${
+                    formData.socioeconomico.frequentaEscolaCreche === true
+                      ? 'bg-emerald-50 border-emerald-500 text-emerald-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}
+                >
+                  Sim
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSocio('frequentaEscolaCreche', false)}
+                  className={`px-4 py-2 rounded-lg border text-sm font-semibold ${
+                    formData.socioeconomico.frequentaEscolaCreche === false
+                      ? 'bg-emerald-50 border-emerald-500 text-emerald-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}
+                >
+                  Não
+                </button>
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Com quem crianças de 0 a 9 anos ficam?</label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {CRIANCAS_COM_QUEM_FICA_OPTIONS.map((item) => {
+                  const selected = (formData.socioeconomico.criancas0a9ComQuemFica || []).includes(item);
+                  return (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() =>
+                        updateSocio(
+                          'criancas0a9ComQuemFica',
+                          toggleListValue(formData.socioeconomico.criancas0a9ComQuemFica, item)
+                        )
+                      }
+                      className={`p-2.5 border rounded-lg text-xs text-left flex items-center gap-2 ${
+                        selected ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      {selected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                      <span>{item}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-5">
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Condições/situações de saúde autorreferidas</label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {CONDICOES_OPTIONS.map((item) => {
+              const selected = (formData.saude.condicoesReferidas || []).includes(item);
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() =>
+                    updateSaude('condicoesReferidas', toggleListValue(formData.saude.condicoesReferidas, item))
+                  }
+                  className={`p-2.5 border rounded-lg text-xs text-left flex items-center gap-2 ${
+                    selected ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'
+                  }`}
+                >
+                  {selected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                  <span>{item}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Tem alguma deficiência?</label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {DEFICIENCIAS_OPTIONS.map((item) => {
+              const selected = (formData.saude.deficiencias || []).includes(item);
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => updateSaude('deficiencias', toggleListValue(formData.saude.deficiencias, item))}
+                  className={`p-2.5 border rounded-lg text-xs text-left flex items-center gap-2 ${
+                    selected ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'
+                  }`}
+                >
+                  {selected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                  <span>{item}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (fetching) {
     return (
       <div className="flex flex-col items-center justify-center p-20 bg-white rounded-2xl border border-slate-200">
         <div className="w-10 h-10 border-4 border-slate-200 border-t-emerald-600 rounded-full animate-spin mb-4" />
-        <p className="text-slate-500 font-medium text-sm">Carregando dados cadastrais...</p>
+        <p className="text-slate-500 font-medium text-sm">Carregando cadastro...</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      {/* Navigation action bar */}
+    <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
@@ -329,11 +761,22 @@ export const PessoaForm: React.FC = () => {
         </button>
         <div>
           <h2 className="font-display font-bold text-xl tracking-tight text-slate-900">
-            {isEditMode ? 'Atualizar Perfil de Residente' : 'Registrar Novo Morador'}
+            {isEditMode ? 'Atualizar Ficha Individual' : 'Nova Ficha Individual'}
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
-            Preencha as informações cadastrais básicas e de saúde para acompanhamento preventivo.
-          </p>
+          <p className="text-slate-500 text-xs mt-0.5">Fluxo em etapas para reduzir erros em campo.</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          <span>Etapa {currentStep + 1} de {STEPS.length}</span>
+          <span>{STEPS[currentStep]}</span>
+        </div>
+        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-emerald-600 transition-all"
+            style={{ width: `${((currentStep + 1) / STEPS.length) * 100}%` }}
+          />
         </div>
       </div>
 
@@ -344,484 +787,40 @@ export const PessoaForm: React.FC = () => {
         </div>
       )}
 
-      {/* FORM CARD */}
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-6 sm:p-8 space-y-6">
-          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 flex items-center gap-2">
-            <User className="w-5 h-5 text-emerald-600" />
-            Dados Pessoais
-          </h3>
+        <div className="p-6 sm:p-8">{renderStep()}</div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {/* Full Name */}
-            <div className="sm:col-span-3">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Nome Completo *
-              </label>
-              <div className="relative">
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                <input
-                  type="text"
-                  required
-                  value={nome}
-                  onChange={(e) => setNome(e.target.value)}
-                  className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                  placeholder="Nome sem abreviações"
-                  id="form-nome"
-                />
-              </div>
-            </div>
-
-            <div className="sm:col-span-3">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Nome Social
-              </label>
-              <input
-                type="text"
-                value={nomeSocial}
-                onChange={(e) => setNomeSocial(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Preencha se a pessoa utiliza nome social"
-                id="form-nome-social"
-              />
-            </div>
-
-            {/* Age */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Idade *
-              </label>
-              <div className="relative">
-                <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  max="120"
-                  value={idade}
-                  onChange={(e) => setIdade(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                  placeholder="Anos"
-                  id="form-idade"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Data de Nascimento
-              </label>
-              <input
-                type="date"
-                value={dataNascimento}
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  setDataNascimento(nextValue);
-                  const nextAge = calculateAgeFromBirthDate(nextValue);
-                  if (nextAge !== '') {
-                    setIdade(nextAge);
-                  }
-                }}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30 h-[42px]"
-                id="form-data-nascimento"
-              />
-            </div>
-
-            {/* Gender Selection */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Sexo Biológico *
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {['Feminino', 'Masculino', 'Outro'].map((gender) => {
-                  const isSelected = sexo === gender;
-                  return (
-                    <button
-                      key={gender}
-                      type="button"
-                      onClick={() => setSexo(gender as any)}
-                      className={`py-2.5 px-3 border rounded-xl font-semibold text-xs tracking-wide transition-all cursor-pointer text-center ${
-                        isSelected 
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700' 
-                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
-                      }`}
-                      id={`form-gender-${gender.toLowerCase()}`}
-                    >
-                      {gender}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                CPF
-              </label>
-              <input
-                type="text"
-                value={cpf}
-                onChange={(e) => setCpf(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="000.000.000-00"
-                id="form-cpf"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                CNS
-              </label>
-              <input
-                type="text"
-                value={cns}
-                onChange={(e) => setCns(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Cartão Nacional de Saúde"
-                id="form-cns"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Contato
-              </label>
-              <input
-                type="tel"
-                value={contato}
-                onChange={(e) => setContato(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Telefone ou celular"
-                id="form-contato"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                E-mail
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="email@exemplo.com"
-                id="form-email"
-              />
-            </div>
-          </div>
-
-          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
-            <HeartPulse className="w-5 h-5 text-emerald-600" />
-            Identificação Complementar
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Raça/Cor
-              </label>
-              <input
-                type="text"
-                value={racaCor}
-                onChange={(e) => setRacaCor(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Ex: Branca"
-                id="form-raca-cor"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Nacionalidade
-              </label>
-              <input
-                type="text"
-                value={nacionalidade}
-                onChange={(e) => setNacionalidade(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Ex: Brasileira"
-                id="form-nacionalidade"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Município/Estado
-              </label>
-              <input
-                type="text"
-                value={municipioEstado}
-                onChange={(e) => setMunicipioEstado(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Ex: Novo Hamburgo/RS"
-                id="form-municipio-estado"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Número NIS (PIS/PASEP)
-              </label>
-              <input
-                type="text"
-                value={nis}
-                onChange={(e) => setNis(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Informe o NIS se houver"
-                id="form-nis"
-              />
-            </div>
-          </div>
-
-          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
-            <User className="w-5 h-5 text-emerald-600" />
-            Filiação e Referência Familiar
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Nome Completo da Mãe
-              </label>
-              <input
-                type="text"
-                value={nomeMae}
-                onChange={(e) => setNomeMae(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Nome da mãe"
-                id="form-nome-mae"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Nome Completo do Pai
-              </label>
-              <input
-                type="text"
-                value={nomePai}
-                onChange={(e) => setNomePai(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Nome do pai"
-                id="form-nome-pai"
-              />
-            </div>
-          </div>
-
-          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
-            <HeartCrack className="w-5 h-5 text-emerald-600" />
-            Marcadores da Ficha
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[
-              {
-                id: 'form-responsavel-familiar',
-                checked: responsavelFamiliar,
-                label: 'Responsável familiar',
-                onClick: () => setResponsavelFamiliar((prev) => !prev)
-              },
-              {
-                id: 'form-fumante',
-                checked: fumante,
-                label: 'Fumante',
-                onClick: () => setFumante((prev) => !prev)
-              },
-              {
-                id: 'form-problema-rins',
-                checked: problemaRins,
-                label: 'Problema nos rins',
-                onClick: () => setProblemaRins((prev) => !prev)
-              }
-            ].map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={option.onClick}
-                className={`p-3.5 border rounded-xl flex items-center gap-3 transition-all cursor-pointer text-left ${
-                  option.checked
-                    ? 'border-emerald-500 bg-emerald-50/50 text-slate-900 shadow-3xs'
-                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
-                }`}
-                id={option.id}
-              >
-                <span className="shrink-0">
-                  {option.checked ? (
-                    <CheckSquare className="w-5 h-5 text-emerald-600 stroke-2" />
-                  ) : (
-                    <Square className="w-5 h-5 text-slate-350 stroke-1" />
-                  )}
-                </span>
-                <span className="text-xs font-semibold tracking-wide">{option.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
-            <MapPin className="w-5 h-5 text-emerald-600" />
-            Endereço & Território
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {/* Neighborhood Service Area */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Área de Atendimento *
-              </label>
-              <div className="relative">
-                {areasList.length > 0 ? (
-                  <select
-                    required
-                    value={areaId}
-                    onChange={(e) => {
-                      const selectedId = e.target.value;
-                      setAreaId(selectedId);
-                      const selectedObj = areasList.find(a => a.id === selectedId);
-                      setAreaAtendimento(selectedObj ? selectedObj.nome : '');
-                      setRuaId('');
-                      setRua('');
-                    }}
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all cursor-pointer font-sans h-[42px]"
-                    id="form-area"
-                  >
-                    <option value="">Selecione uma área</option>
-                    {areasList.map(a => (
-                      <option key={a.id} value={a.id}>{a.nome}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="relative">
-                    <Layers className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                    <input
-                      type="text"
-                      required
-                      value={areaAtendimento}
-                      onChange={(e) => setAreaAtendimento(e.target.value)}
-                      className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all h-[42px]"
-                      placeholder="Ex: Área 05"
-                      id="form-area"
-                    />
-                  </div>
-                )}
-              </div>
-              {areasList.length === 0 && (
-                <p className="text-[10px] text-amber-600 mt-1.5 leading-relaxed font-sans font-medium">
-                  Atalho: Crie Áreas territoriais fixas na barra para preenchimento ágil.
-                </p>
-              )}
-            </div>
-
-            {/* Street */}
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Nome do Logradouro / Rua *
-              </label>
-              {ruasList.length > 0 ? (
-                <select
-                  required
-                  value={ruaId}
-                  onChange={(e) => {
-                    const selectedId = e.target.value;
-                    setRuaId(selectedId);
-                    const selectedObj = ruasList.find(r => r.id === selectedId);
-                    setRua(selectedObj ? selectedObj.nome : '');
-                  }}
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all cursor-pointer font-sans h-[42px]"
-                  id="form-rua"
-                  disabled={!areaId}
-                >
-                  <option value="">{areaId ? 'Selecione uma rua' : 'Selecione a área territorial primeiro'}</option>
-                  {ruasList.filter(r => r.areaId === areaId).map(r => (
-                    <option key={r.id} value={r.id}>{r.nome}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  required
-                  value={rua}
-                  onChange={(e) => setRua(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all h-[42px]"
-                  placeholder="Ex: Rua das Flores"
-                  id="form-rua"
-                />
-              )}
-            </div>
-
-            {/* House identifier */}
-            <div className="sm:col-span-3">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                Complemento / Casa / Nº *
-              </label>
-              <input
-                type="text"
-                required
-                value={casa}
-                onChange={(e) => setCasa(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
-                placeholder="Ex: Casa 12B"
-                id="form-casa"
-              />
-            </div>
-          </div>
-
-          <h4 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
-            <HeartCrack className="w-5 h-5 text-emerald-600" />
-            Condições Crônicas Diagnosticadas
-          </h4>
-
-          {/* Disease Multi-selection view wrapper */}
-          <div className="grid grid-cols-2 gap-3">
-            {diseaseOptions.map((disease) => {
-              const isChecked = selectedDiseases.includes(disease);
-              return (
-                <button
-                  key={disease}
-                  type="button"
-                  onClick={() => handleDiseaseToggle(disease)}
-                  className={`p-3.5 border rounded-xl flex items-center gap-3 transition-all cursor-pointer text-left ${
-                    isChecked 
-                      ? 'border-emerald-500 bg-emerald-50/50 text-slate-900 shadow-3xs' 
-                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
-                  }`}
-                  id={`btn-disease-${disease.replace(/\s+/g, '-').toLowerCase()}`}
-                >
-                  <span className="shrink-0">
-                    {isChecked ? (
-                      <CheckSquare className="w-5 h-5 text-emerald-600 stroke-2" />
-                    ) : (
-                      <Square className="w-5 h-5 text-slate-350 stroke-1" />
-                    )}
-                  </span>
-                  <span className="text-xs font-semibold tracking-wide">{disease}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Buttons Action bar */}
-        <div className="bg-slate-50/60 border-t border-slate-150 px-6 py-4 flex justify-end gap-3.5">
+        <div className="bg-slate-50/60 border-t border-slate-150 px-6 py-4 flex flex-col-reverse sm:flex-row justify-between gap-3.5">
           <button
             type="button"
-            disabled={loading}
-            onClick={() => navigate(-1)}
-            className="px-5 py-2.5 hover:bg-slate-150 rounded-xl text-slate-600 font-bold text-sm transition-all cursor-pointer"
-            id="btn-cancel"
+            disabled={loading || currentStep === 0}
+            onClick={handleBack}
+            className="w-full sm:w-auto px-5 py-2.5 hover:bg-slate-150 rounded-xl text-slate-600 font-bold text-sm transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Cancelar
+            Etapa anterior
           </button>
-          
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-500/10 flex items-center gap-1.5 transition-all cursor-pointer"
-            id="btn-save"
-          >
-            <Save className="w-4 h-4" />
-            <span>{loading ? 'Salvando...' : 'Salvar Ficha'}</span>
-          </button>
+
+          <div className="flex flex-col-reverse sm:flex-row gap-3 w-full sm:w-auto">
+            {currentStep < STEPS.length - 1 ? (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleNext}
+                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all cursor-pointer"
+              >
+                Próxima etapa
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-500/10 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>{loading ? 'Salvando...' : 'Salvar Ficha'}</span>
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LayoutDashboard, Users, LogOut, HeartPulse, Map, Route, CalendarDays } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, HeartPulse, Map, Route, CalendarDays, Home, Settings } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LayoutProps {
@@ -13,11 +13,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
 
   const navItems = [
-    { label: 'Painel', path: '/dashboard', icon: LayoutDashboard },
-    { label: 'Moradores', path: '/pessoas', icon: Users },
-    { label: 'Áreas', path: '/areas', icon: Map },
-    { label: 'Ruas', path: '/ruas', icon: Route },
-    { label: 'Próximas Visitas', path: '/visitas-pendentes', icon: CalendarDays },
+    { label: 'Painel', shortLabel: 'Painel', path: '/dashboard', icon: LayoutDashboard },
+    { label: 'Moradores', shortLabel: 'Pessoas', path: '/pessoas', icon: Users },
+    { label: 'Áreas', shortLabel: 'Áreas', path: '/areas', icon: Map },
+    { label: 'Ruas', shortLabel: 'Ruas', path: '/ruas', icon: Route },
+    { label: 'Casas', shortLabel: 'Casas', path: '/casas', icon: Home },
+    { label: 'Próximas Visitas', shortLabel: 'Visitas', path: '/visitas-pendentes', icon: CalendarDays },
+    { label: 'Meu Território', shortLabel: 'Perfil', path: '/agente-territorio', icon: Settings },
   ];
 
   if (!user) {
@@ -30,17 +32,17 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center gap-8">
+            <div className="flex items-center gap-4 sm:gap-8 min-w-0">
               <Link to="/dashboard" className="flex items-center gap-2 group">
                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg group-hover:bg-emerald-100 transition-all">
                   <HeartPulse className="w-6 h-6" />
                 </div>
-                <span className="font-display font-bold text-lg tracking-tight text-slate-900">
-                  Saúde em Ação <span className="text-emerald-600 font-medium text-sm ml-1 px-1.5 py-0.5 bg-emerald-50 rounded-md">ACS</span>
+                <span className="font-display font-bold text-base sm:text-lg tracking-tight text-slate-900 truncate">
+                  Saúde em Ação <span className="hidden sm:inline text-emerald-600 font-medium text-sm ml-1 px-1.5 py-0.5 bg-emerald-50 rounded-md">ACS</span>
                 </span>
               </Link>
 
-              <nav className="hidden md:flex items-center gap-1">
+              <nav className="hidden lg:flex items-center gap-1">
                 {navItems.map((item) => {
                   const isActive = location.pathname === item.path || (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
                   const Icon = item.icon;
@@ -84,8 +86,8 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </header>
 
-      {/* Sub-header navigation row for mobile only */}
-      <nav className="md:hidden flex bg-white border-b border-slate-200 justify-around p-2">
+      {/* Bottom navigation for mobile */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex items-stretch gap-1 bg-white/95 backdrop-blur border-t border-slate-200 px-2 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path || (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
           const Icon = item.icon;
@@ -93,21 +95,21 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Link
               key={item.path}
               to={item.path}
-              className={`flex flex-col items-center gap-1 px-4 py-1.5 rounded-lg font-medium text-xs transition-all ${
+              className={`flex-1 min-w-0 flex flex-col items-center gap-1 px-2 py-1.5 rounded-lg font-medium text-[11px] transition-all ${
                 isActive
                   ? 'text-emerald-700 bg-emerald-50'
-                  : 'text-slate-600'
+                  : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
               <Icon className="w-4 h-4" />
-              {item.label}
+              <span className="truncate">{item.shortLabel}</span>
             </Link>
           );
         })}
       </nav>
 
       {/* Main page canvas */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8 pb-24 lg:pb-8">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -117,7 +119,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         </motion.div>
       </main>
 
-      <footer className="bg-slate-100 border-t border-slate-200 py-4 mt-auto">
+      <footer className="hidden lg:block bg-slate-100 border-t border-slate-200 py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400">
           Saúde em Ação ACS • Sistema de Gestão e Monitoramento de Visitas
         </div>

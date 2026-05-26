@@ -28,36 +28,188 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // PESSOA ENTITY VALIDATION
-    function isValidPessoa(data) {
-      return data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100
-        && (!('nomeSocial' in data) || (data.nomeSocial is string && data.nomeSocial.size() <= 100))
-        && data.idade is number && data.idade >= 0 && data.idade <= 120
-        && (!('dataNascimento' in data) || (data.dataNascimento is string && data.dataNascimento.matches('^\\d{4}-\\d{2}-\\d{2}$')))
+    function agentePath() {
+      return /databases/$(database)/documents/agentes/$(request.auth.uid);
+    }
+
+    function hasLegacyScope() {
+      return !exists(agentePath());
+    }
+
+    function hasAreaAccess(areaId) {
+      return hasLegacyScope()
+        || (
+          areaId is string
+          && exists(agentePath())
+          && get(agentePath()).data.areaIds is list
+          && get(agentePath()).data.areaIds.hasAny([areaId])
+        );
+    }
+
+    function hasRuaExtraAccess(ruaId) {
+      return hasLegacyScope()
+        || (
+          ruaId is string
+          && exists(agentePath())
+          && get(agentePath()).data.ruaIdsExtras is list
+          && get(agentePath()).data.ruaIdsExtras.hasAny([ruaId])
+        );
+    }
+
+    function hasTerritoryAccess(areaId, ruaId) {
+      return hasAreaAccess(areaId) || hasRuaExtraAccess(ruaId);
+    }
+
+    function isValidAgente(data) {
+      return data.ownerId == request.auth.uid
+        && data.areaIds is list
+        && data.ruaIdsExtras is list
+        && data.keys().hasAll(['ownerId', 'areaIds', 'ruaIdsExtras'])
+        && data.keys().size() >= 3
+        && data.keys().size() <= 5
+        && (!('createdAt' in data) || data.createdAt is timestamp)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    match /agentes/{agenteId} {
+      allow create: if isSignedIn()
+        && agenteId == request.auth.uid
+        && isValidAgente(incoming())
+        && incoming().ownerId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && agenteId == request.auth.uid
+        && isValidAgente(incoming())
+        && isOwner(existing())
+        && incoming().ownerId == existing().ownerId;
+
+      allow get: if isSignedIn()
+        && agenteId == request.auth.uid
+        && isOwner(existing());
+
+      allow list: if false;
+      allow delete: if false;
+    }
+
+    function isValidIdentificacao(data) {
+      return data is map
+        && data.keys().hasAll(['cpfCnsCidadao', 'nomeCompleto', 'dataNascimento', 'sexo'])
+        && data.cpfCnsCidadao is string && data.cpfCnsCidadao.size() > 0 && data.cpfCnsCidadao.size() <= 20
+        && data.nomeCompleto is string && data.nomeCompleto.size() > 0 && data.nomeCompleto.size() <= 120
+        && data.dataNascimento is string && data.dataNascimento.size() >= 8 && data.dataNascimento.size() <= 20
         && data.sexo is string && (data.sexo == 'Masculino' || data.sexo == 'Feminino' || data.sexo == 'Outro')
-        && (!('cpf' in data) || (data.cpf is string && data.cpf.size() <= 20))
-        && (!('cns' in data) || (data.cns is string && data.cns.size() <= 30))
-        && (!('contato' in data) || (data.contato is string && data.contato.size() <= 30))
-        && (!('email' in data) || (data.email is string && data.email.size() <= 120))
-        && data.doencas is list && data.doencas.size() <= 10
-        && (!('fumante' in data) || data.fumante is bool)
-        && (!('problemaRins' in data) || data.problemaRins is bool)
-        && (!('responsavelFamiliar' in data) || data.responsavelFamiliar is bool)
-        && (!('racaCor' in data) || (data.racaCor is string && data.racaCor.size() <= 40))
-        && (!('nacionalidade' in data) || (data.nacionalidade is string && data.nacionalidade.size() <= 80))
-        && (!('municipioEstado' in data) || (data.municipioEstado is string && data.municipioEstado.size() <= 120))
-        && (!('nomeMae' in data) || (data.nomeMae is string && data.nomeMae.size() <= 100))
-        && (!('nomePai' in data) || (data.nomePai is string && data.nomePai.size() <= 100))
-        && (!('nis' in data) || (data.nis is string && data.nis.size() <= 30))
+        && (!('nomeSocial' in data) || (data.nomeSocial is string && data.nomeSocial.size() <= 120))
+        && (!('cpfCnsResponsavelFamiliar' in data) || (data.cpfCnsResponsavelFamiliar is string && data.cpfCnsResponsavelFamiliar.size() <= 20))
+        && (!('racaCor' in data) || (data.racaCor is string && data.racaCor.size() <= 30))
+        && (!('etnia' in data) || (data.etnia is string && data.etnia.size() <= 80))
+        && (!('nissPisPasep' in data) || (data.nissPisPasep is string && data.nissPisPasep.size() <= 20))
+        && (!('nomeMae' in data) || (data.nomeMae is string && data.nomeMae.size() <= 120))
+        && (!('nomePai' in data) || (data.nomePai is string && data.nomePai.size() <= 120))
+        && (!('cidadaoResponsavelFamiliar' in data) || data.cidadaoResponsavelFamiliar is bool)
+        && data.keys().size() <= 20;
+    }
+
+    function isValidEnderecoTerritorio(data) {
+      return data is map
+        && data.keys().hasAll(['areaAtendimento', 'rua', 'casa'])
         && data.areaAtendimento is string && data.areaAtendimento.size() > 0 && data.areaAtendimento.size() <= 100
         && data.rua is string && data.rua.size() > 0 && data.rua.size() <= 150
         && data.casa is string && data.casa.size() > 0 && data.casa.size() <= 50
         && (!('areaId' in data) || (data.areaId is string && isValidId(data.areaId)))
         && (!('ruaId' in data) || (data.ruaId is string && isValidId(data.ruaId)))
+        && (!('casaId' in data) || (data.casaId is string && isValidId(data.casaId)))
+        && (!('microarea' in data) || (data.microarea is string && data.microarea.size() <= 50))
+        && (!('foraArea' in data) || data.foraArea is bool)
+        && (!('telefoneCelular' in data) || (data.telefoneCelular is string && data.telefoneCelular.size() <= 20))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 120))
+        && data.keys().size() <= 13;
+    }
+
+    function isValidCasa(data) {
+      return data.areaId is string && isValidId(data.areaId)
+        && data.ruaId is string && isValidId(data.ruaId)
+        && data.identificacao is string && data.identificacao.size() > 0 && data.identificacao.size() <= 80
+        && (!('complemento' in data) || data.complemento is string && data.complemento.size() <= 120)
+        && (!('tipoImovel' in data) || data.tipoImovel is string && data.tipoImovel.size() <= 60)
+        && data.ownerId == request.auth.uid
+        && data.keys().hasAll(['areaId', 'ruaId', 'identificacao', 'createdAt', 'updatedAt', 'ownerId'])
+        && data.keys().hasOnly([
+          'areaId', 'ruaId', 'identificacao', 'complemento', 'tipoImovel', 'createdAt', 'updatedAt', 'ownerId'
+        ]);
+    }
+
+    function hasValidCasaReference(data) {
+      return !('casaId' in data)
+        || (
+          data.casaId is string
+          && isValidId(data.casaId)
+          && exists(/databases/$(database)/documents/casas/$(data.casaId))
+          && (!('areaId' in data) || get(/databases/$(database)/documents/casas/$(data.casaId)).data.areaId == data.areaId)
+          && (!('ruaId' in data) || get(/databases/$(database)/documents/casas/$(data.casaId)).data.ruaId == data.ruaId)
+        );
+    }
+
+    function isValidSocioeconomico(data) {
+      return data is map
+        && (!('parentescoResponsavelFamiliar' in data) || (data.parentescoResponsavelFamiliar is string && data.parentescoResponsavelFamiliar.size() <= 80))
+        && (!('frequentaEscolaCreche' in data) || data.frequentaEscolaCreche is bool)
+        && (!('cursoFrequenta' in data) || (data.cursoFrequenta is string && data.cursoFrequenta.size() <= 120))
+        && (!('situacaoMercadoTrabalho' in data) || (data.situacaoMercadoTrabalho is string && data.situacaoMercadoTrabalho.size() <= 120))
+        && (!('criancas0a9ComQuemFica' in data) || data.criancas0a9ComQuemFica is list)
+        && (!('cuidadorTradicional' in data) || data.cuidadorTradicional is bool)
+        && (!('participaGrupoComunitario' in data) || data.participaGrupoComunitario is bool)
+        && (!('planoSaudePrivado' in data) || data.planoSaudePrivado is bool)
+        && (!('membroComunidadeTradicional' in data) || data.membroComunidadeTradicional is bool)
+        && (!('orientacaoSexualInformada' in data) || data.orientacaoSexualInformada is bool)
+        && (!('orientacaoSexual' in data) || (data.orientacaoSexual is string && data.orientacaoSexual.size() <= 60))
+        && (!('identidadeGeneroInformada' in data) || data.identidadeGeneroInformada is bool)
+        && (!('identidadeGenero' in data) || (data.identidadeGenero is string && data.identidadeGenero.size() <= 60))
+        && data.keys().size() <= 20;
+    }
+
+    function isValidSaude(data) {
+      return data is map
+        && (!('deficiencias' in data) || data.deficiencias is list)
+        && (!('triagemInsegurancaSemDinheiroComida' in data) || data.triagemInsegurancaSemDinheiroComida is bool)
+        && (!('triagemInsegurancaSemComerPorFaltaDinheiro' in data) || data.triagemInsegurancaSemComerPorFaltaDinheiro is bool)
+        && (!('condicoesReferidas' in data) || data.condicoesReferidas is list)
+        && (!('doencasRespiratorias' in data) || data.doencasRespiratorias is list)
+        && (!('problemasRins' in data) || data.problemasRins is list)
+        && (!('internacaoUltimos12Meses' in data) || data.internacaoUltimos12Meses is bool)
+        && (!('causaInternacao' in data) || (data.causaInternacao is string && data.causaInternacao.size() <= 200))
+        && (!('problemasSaudeMental' in data) || data.problemasSaudeMental is bool)
+        && (!('acamado' in data) || data.acamado is bool)
+        && (!('domiciliado' in data) || data.domiciliado is bool)
+        && (!('plantasMedicinais' in data) || data.plantasMedicinais is bool)
+        && (!('plantasMedicinaisQuais' in data) || (data.plantasMedicinaisQuais is string && data.plantasMedicinaisQuais.size() <= 200))
+        && data.keys().size() <= 20;
+    }
+
+    // PESSOA ENTITY VALIDATION
+    function isValidPessoa(data) {
+      return data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100
+        && data.idade is number && data.idade >= 0 && data.idade <= 120
+        && data.sexo is string && (data.sexo == 'Masculino' || data.sexo == 'Feminino' || data.sexo == 'Outro')
+        && data.doencas is list && data.doencas.size() <= 10
+        && data.areaAtendimento is string && data.areaAtendimento.size() > 0 && data.areaAtendimento.size() <= 100
+        && data.rua is string && data.rua.size() > 0 && data.rua.size() <= 150
+        && data.casa is string && data.casa.size() > 0 && data.casa.size() <= 50
+        && (!('areaId' in data) || (data.areaId is string && isValidId(data.areaId)))
+        && (!('ruaId' in data) || (data.ruaId is string && isValidId(data.ruaId)))
+        && (!('casaId' in data) || (data.casaId is string && isValidId(data.casaId)))
         && (!('visitaPendente' in data) || data.visitaPendente is bool)
+        && (!('schemaVersion' in data) || data.schemaVersion == 2)
+        && (!('identificacao' in data) || isValidIdentificacao(data.identificacao))
+        && (!('enderecoTerritorio' in data) || isValidEnderecoTerritorio(data.enderecoTerritorio))
+        && (!('socioeconomico' in data) || isValidSocioeconomico(data.socioeconomico))
+        && (!('saude' in data) || isValidSaude(data.saude))
+        && hasValidCasaReference(data)
         && data.ownerId == request.auth.uid
         && data.keys().hasAll(['nome', 'idade', 'sexo', 'doencas', 'areaAtendimento', 'rua', 'casa', 'createdAt', 'updatedAt', 'ownerId'])
-        && data.keys().size() >= 10 && data.keys().size() <= 28;
+        && data.keys().hasOnly([
+          'nome', 'idade', 'sexo', 'doencas', 'areaAtendimento', 'rua', 'casa', 'createdAt', 'updatedAt', 'ownerId',
+          'areaId', 'ruaId', 'casaId', 'visitaPendente', 'schemaVersion', 'identificacao', 'enderecoTerritorio', 'socioeconomico', 'saude'
+        ]);
     }
 
     match /pessoas/{pessoaId} {
@@ -66,8 +218,10 @@ service cloud.firestore {
         && isValidPessoa(incoming())
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
+        && hasTerritoryAccess(incoming().areaId, incoming().ruaId)
         && (!('areaId' in incoming()) || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
-        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
+        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)))
+        && (!('casaId' in incoming()) || exists(/databases/$(database)/documents/casas/$(incoming().casaId)));
         
       allow update: if isSignedIn()
         && isValidId(pessoaId)
@@ -76,8 +230,10 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().ownerId == existing().ownerId
+        && hasTerritoryAccess(incoming().areaId, incoming().ruaId)
         && (!('areaId' in incoming()) || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
-        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
+        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)))
+        && (!('casaId' in incoming()) || exists(/databases/$(database)/documents/casas/$(incoming().casaId)));
         
       allow delete: if isSignedIn()
         && isOwner(existing());
@@ -86,7 +242,42 @@ service cloud.firestore {
         && isOwner(existing());
         
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
+        && resource.data.ownerId == request.auth.uid
+        && hasTerritoryAccess(resource.data.areaId, resource.data.ruaId);
+    }
+
+    match /casas/{casaId} {
+      allow create: if isSignedIn()
+        && isValidId(casaId)
+        && isValidCasa(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && hasTerritoryAccess(incoming().areaId, incoming().ruaId)
+        && exists(/databases/$(database)/documents/areas/$(incoming().areaId))
+        && exists(/databases/$(database)/documents/ruas/$(incoming().ruaId));
+
+      allow update: if isSignedIn()
+        && isValidId(casaId)
+        && isOwner(existing())
+        && isValidCasa(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().areaId == existing().areaId
+        && incoming().ruaId == existing().ruaId
+        && hasTerritoryAccess(existing().areaId, existing().ruaId);
+
+      allow delete: if isSignedIn()
+        && isOwner(existing())
+        && hasTerritoryAccess(existing().areaId, existing().ruaId);
+
+      allow get: if isSignedIn()
+        && isOwner(existing())
+        && hasTerritoryAccess(existing().areaId, existing().ruaId);
+
+      allow list: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid
+        && hasTerritoryAccess(resource.data.areaId, resource.data.ruaId);
     }
 
     // AREA ENTITY VALIDATION
@@ -109,16 +300,20 @@ service cloud.firestore {
         && isOwner(existing())
         && isValidArea(incoming())
         && incoming().createdAt == existing().createdAt
-        && incoming().ownerId == existing().ownerId;
+        && incoming().ownerId == existing().ownerId
+        && hasAreaAccess(areaId);
 
       allow delete: if isSignedIn()
-        && isOwner(existing());
+        && isOwner(existing())
+        && hasAreaAccess(areaId);
 
       allow get: if isSignedIn()
-        && isOwner(existing());
+        && isOwner(existing())
+        && hasAreaAccess(areaId);
 
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
+        && resource.data.ownerId == request.auth.uid
+        && hasAreaAccess(areaId);
     }
 
     // RUA ENTITY VALIDATION
@@ -135,6 +330,7 @@ service cloud.firestore {
         && isValidId(ruaId)
         && isValidRua(incoming())
         && incoming().createdAt == request.time
+        && hasAreaAccess(incoming().areaId)
         && exists(/databases/$(database)/documents/areas/$(incoming().areaId))
         && get(/databases/$(database)/documents/areas/$(incoming().areaId)).data.ownerId == request.auth.uid;
 
@@ -144,16 +340,20 @@ service cloud.firestore {
         && isValidRua(incoming())
         && incoming().createdAt == existing().createdAt
         && incoming().ownerId == existing().ownerId
+        && hasTerritoryAccess(incoming().areaId, ruaId)
         && incoming().areaId == existing().areaId;
 
       allow delete: if isSignedIn()
-        && isOwner(existing());
+        && isOwner(existing())
+        && hasTerritoryAccess(existing().areaId, ruaId);
 
       allow get: if isSignedIn()
-        && isOwner(existing());
+        && isOwner(existing())
+        && hasTerritoryAccess(existing().areaId, ruaId);
 
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
+        && resource.data.ownerId == request.auth.uid
+        && hasTerritoryAccess(resource.data.areaId, ruaId);
     }
 
     // ATENDIMENTO ENTITY VALIDATION
@@ -173,6 +373,10 @@ service cloud.firestore {
         && isValidAtendimento(incoming())
         && incoming().createdAt == request.time
         && exists(/databases/$(database)/documents/pessoas/$(incoming().pessoaId))
+        && hasTerritoryAccess(
+          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.areaId,
+          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.ruaId
+        )
         && get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.ownerId == request.auth.uid;
 
       allow update: if isSignedIn()
@@ -181,16 +385,31 @@ service cloud.firestore {
         && isValidAtendimento(incoming())
         && incoming().createdAt == existing().createdAt
         && incoming().ownerId == existing().ownerId
+        && exists(/databases/$(database)/documents/pessoas/$(incoming().pessoaId))
+        && hasTerritoryAccess(
+          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.areaId,
+          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.ruaId
+        )
         && incoming().pessoaId == existing().pessoaId; // immutable
 
       allow delete: if isSignedIn()
         && isOwner(existing());
 
       allow get: if isSignedIn()
-        && isOwner(existing());
+        && isOwner(existing())
+        && exists(/databases/$(database)/documents/pessoas/$(existing().pessoaId))
+        && hasTerritoryAccess(
+          get(/databases/$(database)/documents/pessoas/$(existing().pessoaId)).data.areaId,
+          get(/databases/$(database)/documents/pessoas/$(existing().pessoaId)).data.ruaId
+        );
 
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
+        && resource.data.ownerId == request.auth.uid
+        && exists(/databases/$(database)/documents/pessoas/$(resource.data.pessoaId))
+        && hasTerritoryAccess(
+          get(/databases/$(database)/documents/pessoas/$(resource.data.pessoaId)).data.areaId,
+          get(/databases/$(database)/documents/pessoas/$(resource.data.pessoaId)).data.ruaId
+        );
     }
   }
 }

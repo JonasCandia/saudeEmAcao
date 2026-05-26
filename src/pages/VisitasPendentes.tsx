@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
 import { Pessoa, Atendimento, Area, Rua, OperationType } from '../types';
+import { canAccessTerritory } from '../utils/territoryScope';
 import { 
   Calendar,
   Search, 
@@ -32,7 +33,7 @@ import {
 import { Link } from 'react-router-dom';
 
 export const VisitasPendentes: React.FC = () => {
-  const { user } = useAuth();
+  const { user, areaIds, ruaIdsExtras, legacyAccess } = useAuth();
 
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
@@ -67,6 +68,15 @@ export const VisitasPendentes: React.FC = () => {
   const [savingBulk, setSavingBulk] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
 
+  const pessoaChunks = useMemo(() => {
+    const ids = pessoas.map((p) => p.id).filter((id): id is string => Boolean(id));
+    const chunks: string[][] = [];
+    for (let index = 0; index < ids.length; index += 30) {
+      chunks.push(ids.slice(index, index + 30));
+    }
+    return chunks;
+  }, [pessoas]);
+
   // 1. Fetch data in real-time
   useEffect(() => {
     if (!user) return;
@@ -75,7 +85,13 @@ export const VisitasPendentes: React.FC = () => {
     const qAreas = query(collection(db, 'areas'), where('ownerId', '==', user.uid));
     const unsubscribeAreas = onSnapshot(qAreas, (snapshot) => {
       const list: Area[] = [];
-      snapshot.forEach(doc => { list.push({ id: doc.id, ...doc.data() } as Area); });
+      snapshot.forEach(doc => {
+        const area = { id: doc.id, ...doc.data() } as Area;
+        if (!legacyAccess && !areaIds.includes(area.id || '')) {
+          return;
+        }
+        list.push(area);
+      });
       setAreas(list);
     });
 
@@ -83,7 +99,17 @@ export const VisitasPendentes: React.FC = () => {
     const qRuas = query(collection(db, 'ruas'), where('ownerId', '==', user.uid));
     const unsubscribeRuas = onSnapshot(qRuas, (snapshot) => {
       const list: Rua[] = [];
-      snapshot.forEach(doc => { list.push({ id: doc.id, ...doc.data() } as Rua); });
+      snapshot.forEach(doc => {
+        const rua = { id: doc.id, ...doc.data() } as Rua;
+        if (!canAccessTerritory({
+          areaId: rua.areaId,
+          ruaId: rua.id,
+          scope: { legacyAccess, areaIds, ruaIdsExtras },
+        })) {
+          return;
+        }
+        list.push(rua);
+      });
       setRuas(list);
     });
 
@@ -91,7 +117,17 @@ export const VisitasPendentes: React.FC = () => {
     const qPessoas = query(collection(db, 'pessoas'), where('ownerId', '==', user.uid));
     const unsubscribePessoas = onSnapshot(qPessoas, (snapshot) => {
       const list: Pessoa[] = [];
-      snapshot.forEach(doc => { list.push({ id: doc.id, ...doc.data() } as Pessoa); });
+      snapshot.forEach(doc => {
+        const pessoa = { id: doc.id, ...doc.data() } as Pessoa;
+        if (!canAccessTerritory({
+          areaId: pessoa.areaId,
+          ruaId: pessoa.ruaId,
+          scope: { legacyAccess, areaIds, ruaIdsExtras },
+        })) {
+          return;
+        }
+        list.push(pessoa);
+      });
       setPessoas(list);
       setLoading(false);
     }, (err) => {
@@ -103,21 +139,37 @@ export const VisitasPendentes: React.FC = () => {
       }
     });
 
-    // Listen to Visits
-    const qAtendimentos = query(collection(db, 'atendimentos'), where('ownerId', '==', user.uid));
-    const unsubscribeAtendimentos = onSnapshot(qAtendimentos, (snapshot) => {
-      const list: Atendimento[] = [];
-      snapshot.forEach(doc => { list.push({ id: doc.id, ...doc.data() } as Atendimento); });
-      setAtendimentos(list);
-    });
+    // Listen to Visits only for visible people in the current scope
+    const unsubscribeAtendimentosList: Array<() => void> = [];
+    if (pessoas.length === 0) {
+      setAtendimentos([]);
+    } else {
+      pessoaChunks.forEach((chunk) => {
+        const qAtendimentos = query(
+          collection(db, 'atendimentos'),
+          where('ownerId', '==', user.uid),
+          where('pessoaId', 'in', chunk)
+        );
+
+        const unsubscribe = onSnapshot(qAtendimentos, (snapshot) => {
+          setAtendimentos((current) => {
+            const next = current.filter((item) => !chunk.includes(item.pessoaId));
+            snapshot.forEach(doc => { next.push({ id: doc.id, ...doc.data() } as Atendimento); });
+            return next;
+          });
+        });
+
+        unsubscribeAtendimentosList.push(unsubscribe);
+      });
+    }
 
     return () => {
       unsubscribeAreas();
       unsubscribeRuas();
       unsubscribePessoas();
-      unsubscribeAtendimentos();
+      unsubscribeAtendimentosList.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user]);
+  }, [user, legacyAccess, areaIds, ruaIdsExtras, pessoaChunks]);
 
   // Aggregate Helper: gets the last visit and days elapsed for a resident
   const getPessoaVisitMetrics = (pessoaId: string) => {
@@ -531,7 +583,70 @@ export const VisitasPendentes: React.FC = () => {
         <>
           {filteredAndSortedPessoas.length > 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
+              <div className="md:hidden divide-y divide-slate-100">
+                {filteredAndSortedPessoas.map((p) => {
+                  const isSelected = selectedIds.includes(p.id || '');
+                  return (
+                    <div
+                      key={p.id}
+                      className={`p-4 space-y-3 ${isSelected ? 'bg-emerald-50/20' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <Link to={`/pessoa/${p.id}`} className="font-semibold text-slate-900 text-sm block truncate hover:text-emerald-700">
+                            {p.nome}
+                          </Link>
+                          <p className="text-[11px] text-slate-500 mt-1 truncate">
+                            Casa: {p.casa}, {getRuaName(p.ruaId)}
+                          </p>
+                          <p className="text-[11px] text-slate-400 truncate">
+                            Microárea: {getAreaName(p.areaId)}
+                          </p>
+                        </div>
+
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleSelectToggle(p.id || '')}
+                          className="rounded border-slate-350 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer mt-1"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-1">
+                        <span className={`inline-flex px-2.5 py-1 text-[10px] font-bold rounded-lg border ${p.priorityStyle}`}>
+                          {p.priorityText}
+                        </span>
+                        {p.doencas?.map(d => (
+                          <span key={d} className="text-[9px] font-semibold bg-slate-50 border border-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                            {d}
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <div>
+                          <p className="font-mono text-xs font-bold text-slate-700">
+                            {p.lastVisitDate ? p.lastVisitDate.toLocaleDateString('pt-BR') : 'Nunca visitado'}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            {p.neverVisited ? 'Cadastro recente' : `${p.daysSince} dias transcorridos`}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => openSingleVisitModal(p)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-700 font-bold text-xs rounded-xl transition-all cursor-pointer border border-emerald-100"
+                        >
+                          <Stethoscope className="w-3.5 h-3.5" />
+                          <span>Registrar</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-100 text-slate-400 uppercase tracking-widest text-[9px] font-bold bg-slate-50/70">

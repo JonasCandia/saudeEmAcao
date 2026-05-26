@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
 import { Area, Rua, Pessoa, Atendimento, OperationType } from '../types';
+import { canAccessTerritory } from '../utils/territoryScope';
 import { 
   Plus, 
   Pencil, 
@@ -31,7 +32,7 @@ import {
 } from 'lucide-react';
 
 export const RuasLista: React.FC = () => {
-  const { user } = useAuth();
+  const { user, areaIds, ruaIdsExtras, legacyAccess } = useAuth();
 
   const [areas, setAreas] = useState<Area[]>([]);
   const [ruas, setRuas] = useState<Rua[]>([]);
@@ -60,6 +61,15 @@ export const RuasLista: React.FC = () => {
   const [selectedRuaForView, setSelectedRuaForView] = useState<Rua | null>(null);
   const [isViewResidentsOpen, setIsViewResidentsOpen] = useState(false);
 
+  const pessoaChunks = useMemo(() => {
+    const ids = pessoas.map((p) => p.id).filter((id): id is string => Boolean(id));
+    const chunks: string[][] = [];
+    for (let index = 0; index < ids.length; index += 30) {
+      chunks.push(ids.slice(index, index + 30));
+    }
+    return chunks;
+  }, [pessoas]);
+
   // 1. Listen real-time to Areas, Ruas, Persons, Atendimentos
   useEffect(() => {
     if (!user) return;
@@ -69,7 +79,11 @@ export const RuasLista: React.FC = () => {
     const unsubscribeAreas = onSnapshot(qAreas, (snapshot) => {
       const list: Area[] = [];
       snapshot.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() } as Area);
+        const area = { id: doc.id, ...doc.data() } as Area;
+        if (!legacyAccess && !areaIds.includes(area.id || '')) {
+          return;
+        }
+        list.push(area);
       });
       list.sort((a, b) => a.nome.localeCompare(b.nome));
       setAreas(list);
@@ -80,7 +94,15 @@ export const RuasLista: React.FC = () => {
     const unsubscribeRuas = onSnapshot(qRuas, (snapshot) => {
       const list: Rua[] = [];
       snapshot.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() } as Rua);
+        const rua = { id: doc.id, ...doc.data() } as Rua;
+        if (!canAccessTerritory({
+          areaId: rua.areaId,
+          ruaId: rua.id,
+          scope: { legacyAccess, areaIds, ruaIdsExtras },
+        })) {
+          return;
+        }
+        list.push(rua);
       });
       list.sort((a, b) => a.nome.localeCompare(b.nome));
       setRuas(list);
@@ -99,28 +121,53 @@ export const RuasLista: React.FC = () => {
     const unsubscribePessoas = onSnapshot(qPessoas, (snapshot) => {
       const list: Pessoa[] = [];
       snapshot.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() } as Pessoa);
+        const pessoa = { id: doc.id, ...doc.data() } as Pessoa;
+        if (!canAccessTerritory({
+          areaId: pessoa.areaId,
+          ruaId: pessoa.ruaId,
+          scope: { legacyAccess, areaIds, ruaIdsExtras },
+        })) {
+          return;
+        }
+        list.push(pessoa);
       });
       setPessoas(list);
     }, () => {});
 
-    // Fetch Atendimentos
-    const qAtendimentos = query(collection(db, 'atendimentos'), where('ownerId', '==', user.uid));
-    const unsubscribeAtendimentos = onSnapshot(qAtendimentos, (snapshot) => {
-      const list: Atendimento[] = [];
-      snapshot.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() } as Atendimento);
+    // Fetch Atendimentos only for visible people in the current scope
+    const unsubscribeAtendimentosList: Array<() => void> = [];
+    if (pessoas.length === 0) {
+      setAtendimentos([]);
+    } else {
+      pessoaChunks.forEach((chunk) => {
+        const qAtendimentos = query(
+          collection(db, 'atendimentos'),
+          where('ownerId', '==', user.uid),
+          where('pessoaId', 'in', chunk)
+        );
+
+        const unsubscribe = onSnapshot(qAtendimentos, (snapshot) => {
+          setAtendimentos((current) => {
+            const next = current.filter((item) => !chunk.includes(item.pessoaId));
+            snapshot.forEach((doc) => {
+              const atendimento = { id: doc.id, ...doc.data() } as Atendimento;
+              next.push(atendimento);
+            });
+            return next;
+          });
+        }, () => {});
+
+        unsubscribeAtendimentosList.push(unsubscribe);
       });
-      setAtendimentos(list);
-    }, () => {});
+    }
 
     return () => {
       unsubscribeAreas();
       unsubscribeRuas();
       unsubscribePessoas();
-      unsubscribeAtendimentos();
+      unsubscribeAtendimentosList.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user]);
+  }, [user, legacyAccess, areaIds, ruaIdsExtras, pessoaChunks]);
 
   // Handle open creation modal
   const openCreateModal = () => {
@@ -363,7 +410,73 @@ export const RuasLista: React.FC = () => {
       {/* MAIN TABLE LAYOUT */}
       {filteredRuas.length > 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
+          <div className="md:hidden divide-y divide-slate-100">
+            {filteredRuas.map((rua) => {
+              const residentsCount = pessoas.filter(p => p.ruaId === rua.id).length;
+              const lastVisitText = getStreetLastVisit(rua.id || '');
+              return (
+                <div key={rua.id} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900 text-sm truncate">{rua.nome}</p>
+                      <p className="text-xs text-slate-500 mt-1">{getAreaName(rua.areaId)}</p>
+                    </div>
+                    <span className="font-mono bg-slate-50 rounded-lg px-2 py-1 text-slate-600 text-xs font-bold border border-slate-100 shrink-0">
+                      {residentsCount} dom.
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className={`font-mono text-[10px] px-2 py-1 rounded-full font-bold border ${
+                      lastVisitText === 'Nunca visitada' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                      lastVisitText === 'Indisponível' ? 'bg-slate-50 text-slate-400 border-slate-100' :
+                      'bg-emerald-50 text-emerald-700 border-emerald-100'
+                    }`}>
+                      Última visita: {lastVisitText}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      onClick={() => openViewResidents(rua)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-lg cursor-pointer transition-colors"
+                      title="Ver moradores desta rua"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Contatos</span>
+                    </button>
+
+                    <button
+                      onClick={() => scheduleCollectiveVisit(rua)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg cursor-pointer transition-colors border border-emerald-100"
+                      title="Indicar visita coletiva"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5" />
+                      <span>Agendar Rua</span>
+                    </button>
+
+                    <button
+                      onClick={() => openEditModal(rua)}
+                      className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-700 rounded-lg cursor-pointer"
+                      title="Editar rua"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => openDeleteModal(rua)}
+                      className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg cursor-pointer"
+                      title="Excluir rua"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-400 uppercase tracking-widest text-[10px] font-bold bg-slate-50/70">

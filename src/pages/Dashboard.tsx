@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
 import { Pessoa, Atendimento, OperationType } from '../types';
+import { canAccessTerritory } from '../utils/territoryScope';
 import { 
   Users, 
   CalendarCheck, 
@@ -23,7 +24,7 @@ import {
 import { Link } from 'react-router-dom';
 
 export const Dashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user, areaIds, ruaIdsExtras, legacyAccess } = useAuth();
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [atendimentos, setAtendimentos] = useState<Atendimento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,15 @@ export const Dashboard: React.FC = () => {
   const [selectedDisease, setSelectedDisease] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  const pessoaChunks = useMemo(() => {
+    const ids = pessoas.map((p) => p.id).filter((id): id is string => Boolean(id));
+    const chunks: string[][] = [];
+    for (let index = 0; index < ids.length; index += 30) {
+      chunks.push(ids.slice(index, index + 30));
+    }
+    return chunks;
+  }, [pessoas]);
 
   // 1. Data Subscriptions
   useEffect(() => {
@@ -50,7 +60,15 @@ export const Dashboard: React.FC = () => {
       (snapshot) => {
         const list: Pessoa[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Pessoa);
+          const pessoa = { id: doc.id, ...doc.data() } as Pessoa;
+          if (!canAccessTerritory({
+            areaId: pessoa.areaId,
+            ruaId: pessoa.ruaId,
+            scope: { legacyAccess, areaIds, ruaIdsExtras },
+          })) {
+            return;
+          }
+          list.push(pessoa);
         });
         setPessoas(list);
         setLoading(false);
@@ -66,34 +84,47 @@ export const Dashboard: React.FC = () => {
     );
 
     const pathAtendimentos = 'atendimentos';
-    const qAtendimentos = query(
-      collection(db, pathAtendimentos),
-      where('ownerId', '==', user.uid)
-    );
+    const unsubAtendimentosList: Array<() => void> = [];
 
-    const unsubAtendimentos = onSnapshot(
-      qAtendimentos,
-      (snapshot) => {
-        const list: Atendimento[] = [];
-        snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Atendimento);
-        });
-        setAtendimentos(list);
-      },
-      (error) => {
-        try {
-          handleFirestoreError(error, OperationType.LIST, pathAtendimentos);
-        } catch (formattedError: any) {
-          setErrorInfo(JSON.parse(formattedError.message));
-        }
-      }
-    );
+    if (pessoas.length === 0) {
+      setAtendimentos([]);
+    } else {
+      pessoaChunks.forEach((chunk) => {
+        const qAtendimentos = query(
+          collection(db, pathAtendimentos),
+          where('ownerId', '==', user.uid),
+          where('pessoaId', 'in', chunk)
+        );
+
+        const unsubscribe = onSnapshot(
+          qAtendimentos,
+          (snapshot) => {
+            setAtendimentos((current) => {
+              const next = current.filter((item) => !chunk.includes(item.pessoaId));
+              snapshot.forEach((doc) => {
+                next.push({ id: doc.id, ...doc.data() } as Atendimento);
+              });
+              return next;
+            });
+          },
+          (error) => {
+            try {
+              handleFirestoreError(error, OperationType.LIST, pathAtendimentos);
+            } catch (formattedError: any) {
+              setErrorInfo(JSON.parse(formattedError.message));
+            }
+          }
+        );
+
+        unsubAtendimentosList.push(unsubscribe);
+      });
+    }
 
     return () => {
       unsubPessoas();
-      unsubAtendimentos();
+      unsubAtendimentosList.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user]);
+  }, [user, legacyAccess, areaIds, ruaIdsExtras, pessoaChunks]);
 
   // Convert firestore timestamp safely
   const parseFirestoreDate = (field: any): Date => {
@@ -735,39 +766,62 @@ export const Dashboard: React.FC = () => {
 
               <div className="mt-4 overflow-x-auto">
                 {streetsWithPendingCount.length > 0 ? (
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        <th className="py-2.5 px-2 text-left">Rua</th>
-                        <th className="py-2.5 px-2 text-left">Microárea</th>
-                        <th className="py-2.5 px-2 text-center">Pendentes</th>
-                        <th className="py-2.5 px-2 text-center">Total</th>
-                        <th className="py-2.5 px-2 text-right">Caderno de Campo</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100/70 text-xs text-slate-650 border-b border-slate-100">
+                  <>
+                    <div className="md:hidden space-y-2">
                       {streetsWithPendingCount.map((st) => (
-                        <tr key={st.name} className="hover:bg-slate-50/40">
-                          <td className="py-3 px-2 font-bold text-slate-800">{st.name}</td>
-                          <td className="py-3 px-2 text-slate-450">{st.area}</td>
-                          <td className="py-3 px-2 text-center">
-                            <span className="text-rose-600 font-bold font-mono bg-rose-50/50 px-1.5 py-0.5 rounded-lg border border-rose-100">
-                              {st.pending}
+                        <div key={st.name} className="border border-slate-100 rounded-xl p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 text-sm truncate">{st.name}</p>
+                              <p className="text-xs text-slate-500 truncate">{st.area}</p>
+                            </div>
+                            <span className="text-rose-600 font-bold font-mono bg-rose-50/50 px-1.5 py-0.5 rounded-lg border border-rose-100 text-xs shrink-0">
+                              {st.pending}/{st.total}
                             </span>
-                          </td>
-                          <td className="py-3 px-2 text-center font-mono font-medium">{st.total}</td>
-                          <td className="py-3 px-2 text-right">
-                            <Link 
-                              to="/visitas-pendentes" 
-                              className="text-emerald-700 hover:underline font-bold text-[11px]"
-                            >
-                              Ver Fila
+                          </div>
+                          <div className="pt-2">
+                            <Link to="/visitas-pendentes" className="text-xs text-emerald-700 font-semibold">
+                              Ver fila da região
                             </Link>
-                          </td>
-                        </tr>
+                          </div>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+
+                    <table className="hidden md:table w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="py-2.5 px-2 text-left">Rua</th>
+                          <th className="py-2.5 px-2 text-left">Microárea</th>
+                          <th className="py-2.5 px-2 text-center">Pendentes</th>
+                          <th className="py-2.5 px-2 text-center">Total</th>
+                          <th className="py-2.5 px-2 text-right">Caderno de Campo</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100/70 text-xs text-slate-650 border-b border-slate-100">
+                        {streetsWithPendingCount.map((st) => (
+                          <tr key={st.name} className="hover:bg-slate-50/40">
+                            <td className="py-3 px-2 font-bold text-slate-800">{st.name}</td>
+                            <td className="py-3 px-2 text-slate-450">{st.area}</td>
+                            <td className="py-3 px-2 text-center">
+                              <span className="text-rose-600 font-bold font-mono bg-rose-50/50 px-1.5 py-0.5 rounded-lg border border-rose-100">
+                                {st.pending}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 text-center font-mono font-medium">{st.total}</td>
+                            <td className="py-3 px-2 text-right">
+                              <Link
+                                to="/visitas-pendentes"
+                                className="text-emerald-700 hover:underline font-bold text-[11px]"
+                              >
+                                Ver Fila
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
                 ) : (
                   <div className="py-12 text-center text-xs text-slate-400 italic">
                     Não existem ruas com visitas pendentes! Excelente cobertura geral.

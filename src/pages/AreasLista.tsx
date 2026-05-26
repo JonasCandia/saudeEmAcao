@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
 import { Area, Rua, Pessoa, OperationType } from '../types';
+import { canAccessTerritory } from '../utils/territoryScope';
 import { 
   Plus, 
   Pencil, 
@@ -29,7 +30,7 @@ import {
 } from 'lucide-react';
 
 export const AreasLista: React.FC = () => {
-  const { user } = useAuth();
+  const { user, areaIds, ruaIdsExtras, legacyAccess } = useAuth();
 
   const [areas, setAreas] = useState<Area[]>([]);
   const [ruas, setRuas] = useState<Rua[]>([]);
@@ -61,7 +62,11 @@ export const AreasLista: React.FC = () => {
       (snapshot) => {
         const list: Area[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Area);
+          const area = { id: doc.id, ...doc.data() } as Area;
+          if (!legacyAccess && !areaIds.includes(area.id || '')) {
+            return;
+          }
+          list.push(area);
         });
         list.sort((a, b) => a.nome.localeCompare(b.nome));
         setAreas(list);
@@ -84,7 +89,15 @@ export const AreasLista: React.FC = () => {
       (snapshot) => {
         const list: Rua[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Rua);
+          const rua = { id: doc.id, ...doc.data() } as Rua;
+          if (!canAccessTerritory({
+            areaId: rua.areaId,
+            ruaId: rua.id,
+            scope: { legacyAccess, areaIds, ruaIdsExtras },
+          })) {
+            return;
+          }
+          list.push(rua);
         });
         setRuas(list);
       },
@@ -98,7 +111,15 @@ export const AreasLista: React.FC = () => {
       (snapshot) => {
         const list: Pessoa[] = [];
         snapshot.forEach((doc) => {
-          list.push({ id: doc.id, ...doc.data() } as Pessoa);
+          const pessoa = { id: doc.id, ...doc.data() } as Pessoa;
+          if (!canAccessTerritory({
+            areaId: pessoa.areaId,
+            ruaId: pessoa.ruaId,
+            scope: { legacyAccess, areaIds, ruaIdsExtras },
+          })) {
+            return;
+          }
+          list.push(pessoa);
         });
         setPessoas(list);
       },
@@ -110,7 +131,7 @@ export const AreasLista: React.FC = () => {
       unsubscribeRuas();
       unsubscribePessoas();
     };
-  }, [user]);
+  }, [user, legacyAccess, areaIds, ruaIdsExtras]);
 
   // Handle open creation modal
   const openCreateModal = () => {
