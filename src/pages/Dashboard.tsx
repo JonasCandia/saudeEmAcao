@@ -83,48 +83,53 @@ export const Dashboard: React.FC = () => {
       }
     );
 
-    const pathAtendimentos = 'atendimentos';
-    const unsubAtendimentosList: Array<() => void> = [];
-
-    if (pessoas.length === 0) {
-      setAtendimentos([]);
-    } else {
-      pessoaChunks.forEach((chunk) => {
-        const qAtendimentos = query(
-          collection(db, pathAtendimentos),
-          where('ownerId', '==', user.uid),
-          where('pessoaId', 'in', chunk)
-        );
-
-        const unsubscribe = onSnapshot(
-          qAtendimentos,
-          (snapshot) => {
-            setAtendimentos((current) => {
-              const next = current.filter((item) => !chunk.includes(item.pessoaId));
-              snapshot.forEach((doc) => {
-                next.push({ id: doc.id, ...doc.data() } as Atendimento);
-              });
-              return next;
-            });
-          },
-          (error) => {
-            try {
-              handleFirestoreError(error, OperationType.LIST, pathAtendimentos);
-            } catch (formattedError: any) {
-              setErrorInfo(JSON.parse(formattedError.message));
-            }
-          }
-        );
-
-        unsubAtendimentosList.push(unsubscribe);
-      });
-    }
-
     return () => {
       unsubPessoas();
+    };
+  }, [user, legacyAccess, areaIds, ruaIdsExtras]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const pathAtendimentos = 'atendimentos';
+
+    if (pessoaChunks.length === 0) {
+      setAtendimentos([]);
+      return;
+    }
+
+    const unsubAtendimentosList = pessoaChunks.map((chunk) => {
+      const qAtendimentos = query(
+        collection(db, pathAtendimentos),
+        where('ownerId', '==', user.uid),
+        where('pessoaId', 'in', chunk)
+      );
+
+      return onSnapshot(
+        qAtendimentos,
+        (snapshot) => {
+          setAtendimentos((current) => {
+            const next = current.filter((item) => !chunk.includes(item.pessoaId));
+            snapshot.forEach((doc) => {
+              next.push({ id: doc.id, ...doc.data() } as Atendimento);
+            });
+            return next;
+          });
+        },
+        (error) => {
+          try {
+            handleFirestoreError(error, OperationType.LIST, pathAtendimentos);
+          } catch (formattedError: any) {
+            setErrorInfo(JSON.parse(formattedError.message));
+          }
+        }
+      );
+    });
+
+    return () => {
       unsubAtendimentosList.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user, legacyAccess, areaIds, ruaIdsExtras, pessoaChunks]);
+  }, [user, pessoaChunks]);
 
   // Convert firestore timestamp safely
   const parseFirestoreDate = (field: any): Date => {

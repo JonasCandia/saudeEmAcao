@@ -15,6 +15,7 @@ export const AgenteTerritorio: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [hasExistingProfile, setHasExistingProfile] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -54,9 +55,11 @@ export const AgenteTerritorio: React.FC = () => {
         const snap = await getDoc(ref);
         if (snap.exists()) {
           const data = snap.data() as { areaIds?: string[]; ruaIdsExtras?: string[] };
+          setHasExistingProfile(true);
           setSelectedAreaIds(data.areaIds || []);
           setSelectedRuaIdsExtras(data.ruaIdsExtras || []);
         } else {
+          setHasExistingProfile(false);
           setSelectedAreaIds([]);
           setSelectedRuaIdsExtras([]);
         }
@@ -100,13 +103,16 @@ export const AgenteTerritorio: React.FC = () => {
     setMessage(null);
 
     try {
-      await setDoc(doc(db, 'agentes', user.uid), {
+      const payload = {
         ownerId: user.uid,
         areaIds: selectedAreaIds,
         ruaIdsExtras: selectedRuaIdsExtras,
-        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      }, { merge: true });
+        ...(!hasExistingProfile ? { createdAt: serverTimestamp() } : {}),
+      };
+
+      await setDoc(doc(db, 'agentes', user.uid), payload, { merge: true });
+      setHasExistingProfile(true);
       setMessage('Perfil territorial salvo com sucesso.');
     } catch (error: any) {
       setMessage(`Falha ao salvar perfil territorial: ${error.message}`);

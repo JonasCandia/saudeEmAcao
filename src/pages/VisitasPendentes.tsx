@@ -139,37 +139,41 @@ export const VisitasPendentes: React.FC = () => {
       }
     });
 
-    // Listen to Visits only for visible people in the current scope
-    const unsubscribeAtendimentosList: Array<() => void> = [];
-    if (pessoas.length === 0) {
-      setAtendimentos([]);
-    } else {
-      pessoaChunks.forEach((chunk) => {
-        const qAtendimentos = query(
-          collection(db, 'atendimentos'),
-          where('ownerId', '==', user.uid),
-          where('pessoaId', 'in', chunk)
-        );
-
-        const unsubscribe = onSnapshot(qAtendimentos, (snapshot) => {
-          setAtendimentos((current) => {
-            const next = current.filter((item) => !chunk.includes(item.pessoaId));
-            snapshot.forEach(doc => { next.push({ id: doc.id, ...doc.data() } as Atendimento); });
-            return next;
-          });
-        });
-
-        unsubscribeAtendimentosList.push(unsubscribe);
-      });
-    }
-
     return () => {
       unsubscribeAreas();
       unsubscribeRuas();
       unsubscribePessoas();
+    };
+  }, [user, legacyAccess, areaIds, ruaIdsExtras]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    if (pessoaChunks.length === 0) {
+      setAtendimentos([]);
+      return;
+    }
+
+    const unsubscribeAtendimentosList = pessoaChunks.map((chunk) => {
+      const qAtendimentos = query(
+        collection(db, 'atendimentos'),
+        where('ownerId', '==', user.uid),
+        where('pessoaId', 'in', chunk)
+      );
+
+      return onSnapshot(qAtendimentos, (snapshot) => {
+        setAtendimentos((current) => {
+          const next = current.filter((item) => !chunk.includes(item.pessoaId));
+          snapshot.forEach(doc => { next.push({ id: doc.id, ...doc.data() } as Atendimento); });
+          return next;
+        });
+      });
+    });
+
+    return () => {
       unsubscribeAtendimentosList.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user, legacyAccess, areaIds, ruaIdsExtras, pessoaChunks]);
+  }, [user, pessoaChunks]);
 
   // Aggregate Helper: gets the last visit and days elapsed for a resident
   const getPessoaVisitMetrics = (pessoaId: string) => {

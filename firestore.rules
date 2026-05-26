@@ -85,7 +85,7 @@ service cloud.firestore {
 
       allow get: if isSignedIn()
         && agenteId == request.auth.uid
-        && isOwner(existing());
+        && ( !exists(/databases/$(database)/documents/agentes/$(agenteId)) || isOwner(existing()) );
 
       allow list: if false;
       allow delete: if false;
@@ -242,8 +242,7 @@ service cloud.firestore {
         && isOwner(existing());
         
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid
-        && hasTerritoryAccess(resource.data.areaId, resource.data.ruaId);
+        && resource.data.ownerId == request.auth.uid;
     }
 
     match /casas/{casaId} {
@@ -272,12 +271,10 @@ service cloud.firestore {
         && hasTerritoryAccess(existing().areaId, existing().ruaId);
 
       allow get: if isSignedIn()
-        && isOwner(existing())
-        && hasTerritoryAccess(existing().areaId, existing().ruaId);
+        && isOwner(existing());
 
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid
-        && hasTerritoryAccess(resource.data.areaId, resource.data.ruaId);
+        && resource.data.ownerId == request.auth.uid;
     }
 
     // AREA ENTITY VALIDATION
@@ -308,12 +305,10 @@ service cloud.firestore {
         && hasAreaAccess(areaId);
 
       allow get: if isSignedIn()
-        && isOwner(existing())
-        && hasAreaAccess(areaId);
+        && isOwner(existing());
 
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid
-        && hasAreaAccess(areaId);
+        && resource.data.ownerId == request.auth.uid;
     }
 
     // RUA ENTITY VALIDATION
@@ -348,12 +343,10 @@ service cloud.firestore {
         && hasTerritoryAccess(existing().areaId, ruaId);
 
       allow get: if isSignedIn()
-        && isOwner(existing())
-        && hasTerritoryAccess(existing().areaId, ruaId);
+        && isOwner(existing());
 
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid
-        && hasTerritoryAccess(resource.data.areaId, ruaId);
+        && resource.data.ownerId == request.auth.uid;
     }
 
     // ATENDIMENTO ENTITY VALIDATION
@@ -396,20 +389,10 @@ service cloud.firestore {
         && isOwner(existing());
 
       allow get: if isSignedIn()
-        && isOwner(existing())
-        && exists(/databases/$(database)/documents/pessoas/$(existing().pessoaId))
-        && hasTerritoryAccess(
-          get(/databases/$(database)/documents/pessoas/$(existing().pessoaId)).data.areaId,
-          get(/databases/$(database)/documents/pessoas/$(existing().pessoaId)).data.ruaId
-        );
+        && isOwner(existing());
 
       allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid
-        && exists(/databases/$(database)/documents/pessoas/$(resource.data.pessoaId))
-        && hasTerritoryAccess(
-          get(/databases/$(database)/documents/pessoas/$(resource.data.pessoaId)).data.areaId,
-          get(/databases/$(database)/documents/pessoas/$(resource.data.pessoaId)).data.ruaId
-        );
+        && resource.data.ownerId == request.auth.uid;
     }
   }
 }

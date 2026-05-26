@@ -70,7 +70,7 @@ export const RuasLista: React.FC = () => {
     return chunks;
   }, [pessoas]);
 
-  // 1. Listen real-time to Areas, Ruas, Persons, Atendimentos
+  // 1. Listen real-time to Areas, Ruas e Pessoas
   useEffect(() => {
     if (!user) return;
 
@@ -134,40 +134,45 @@ export const RuasLista: React.FC = () => {
       setPessoas(list);
     }, () => {});
 
-    // Fetch Atendimentos only for visible people in the current scope
-    const unsubscribeAtendimentosList: Array<() => void> = [];
-    if (pessoas.length === 0) {
-      setAtendimentos([]);
-    } else {
-      pessoaChunks.forEach((chunk) => {
-        const qAtendimentos = query(
-          collection(db, 'atendimentos'),
-          where('ownerId', '==', user.uid),
-          where('pessoaId', 'in', chunk)
-        );
-
-        const unsubscribe = onSnapshot(qAtendimentos, (snapshot) => {
-          setAtendimentos((current) => {
-            const next = current.filter((item) => !chunk.includes(item.pessoaId));
-            snapshot.forEach((doc) => {
-              const atendimento = { id: doc.id, ...doc.data() } as Atendimento;
-              next.push(atendimento);
-            });
-            return next;
-          });
-        }, () => {});
-
-        unsubscribeAtendimentosList.push(unsubscribe);
-      });
-    }
-
     return () => {
       unsubscribeAreas();
       unsubscribeRuas();
       unsubscribePessoas();
+    };
+  }, [user, legacyAccess, areaIds, ruaIdsExtras]);
+
+  // 2. Listen real-time to Atendimentos only for visible people in the current scope
+  useEffect(() => {
+    if (!user) return;
+
+    if (pessoaChunks.length === 0) {
+      setAtendimentos([]);
+      return;
+    }
+
+    const unsubscribeAtendimentosList = pessoaChunks.map((chunk) => {
+      const qAtendimentos = query(
+        collection(db, 'atendimentos'),
+        where('ownerId', '==', user.uid),
+        where('pessoaId', 'in', chunk)
+      );
+
+      return onSnapshot(qAtendimentos, (snapshot) => {
+        setAtendimentos((current) => {
+          const next = current.filter((item) => !chunk.includes(item.pessoaId));
+          snapshot.forEach((doc) => {
+            const atendimento = { id: doc.id, ...doc.data() } as Atendimento;
+            next.push(atendimento);
+          });
+          return next;
+        });
+      }, () => {});
+    });
+
+    return () => {
       unsubscribeAtendimentosList.forEach((unsubscribe) => unsubscribe());
     };
-  }, [user, legacyAccess, areaIds, ruaIdsExtras, pessoaChunks]);
+  }, [user, pessoaChunks]);
 
   // Handle open creation modal
   const openCreateModal = () => {
