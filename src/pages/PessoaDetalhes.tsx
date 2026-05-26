@@ -34,6 +34,20 @@ import {
   Stethoscope
 } from 'lucide-react';
 
+const formatDateString = (value?: string) => {
+  if (!value) return 'Não informado';
+
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) return value;
+
+  return `${day}/${month}/${year}`;
+};
+
+const formatTextValue = (value?: string) => {
+  if (!value || !value.trim()) return 'Não informado';
+  return value;
+};
+
 export const PessoaDetalhes: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -212,6 +226,20 @@ export const PessoaDetalhes: React.FC = () => {
     }
   };
 
+  const visitadoHoje = useMemo(() => {
+    const today = new Date();
+    return atendimentos.some((visita) => {
+      const rawDate = visita.dataVisita?.seconds
+        ? new Date(visita.dataVisita.seconds * 1000)
+        : new Date(visita.dataVisita);
+
+      return !Number.isNaN(rawDate.getTime())
+        && rawDate.getDate() === today.getDate()
+        && rawDate.getMonth() === today.getMonth()
+        && rawDate.getFullYear() === today.getFullYear();
+    });
+  }, [atendimentos]);
+
   if (fetching) {
     return (
       <div className="flex flex-col items-center justify-center p-20 bg-white rounded-2xl border border-slate-200">
@@ -257,6 +285,28 @@ export const PessoaDetalhes: React.FC = () => {
               <MapPin className="w-3.5 h-3.5 text-emerald-500" />
               Área de Cobertura: {pessoa.areaAtendimento}
             </p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {visitadoHoje && (
+                <span className="inline-flex px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-100">
+                  Visitado hoje
+                </span>
+              )}
+              {pessoa.responsavelFamiliar && (
+                <span className="inline-flex px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200">
+                  Responsável
+                </span>
+              )}
+              {pessoa.fumante && (
+                <span className="inline-flex px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-bold border border-amber-100">
+                  Fumante
+                </span>
+              )}
+              {pessoa.problemaRins && (
+                <span className="inline-flex px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 text-xs font-bold border border-rose-100">
+                  Problema nos rins
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -278,6 +328,76 @@ export const PessoaDetalhes: React.FC = () => {
             <Plus className="w-4 h-4" />
             <span>Registrar Visita</span>
           </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h3 className="font-display font-bold text-slate-900 text-base">Dados Cadastrais</h3>
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ficha ampliada</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 text-sm">
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Nome completo</span>
+            <span className="text-slate-800 font-medium">{pessoa.nome}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Nome social</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.nomeSocial)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Data de nascimento</span>
+            <span className="text-slate-800 font-medium">{formatDateString(pessoa.dataNascimento)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Sexo</span>
+            <span className="text-slate-800 font-medium">{pessoa.sexo}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">CPF</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.cpf)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">CNS</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.cns)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Contato</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.contato)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">E-mail</span>
+            <span className="text-slate-800 font-medium break-all">{formatTextValue(pessoa.email)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Raça/Cor</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.racaCor)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Nacionalidade</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.nacionalidade)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Município/Estado</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.municipioEstado)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">NIS (PIS/PASEP)</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.nis)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Nome completo da mãe</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.nomeMae)}</span>
+          </div>
+          <div>
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Nome completo do pai</span>
+            <span className="text-slate-800 font-medium">{formatTextValue(pessoa.nomePai)}</span>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-widest">Endereço</span>
+            <span className="text-slate-800 font-medium">{pessoa.rua}, {pessoa.casa} - {pessoa.areaAtendimento}</span>
+          </div>
         </div>
       </div>
 

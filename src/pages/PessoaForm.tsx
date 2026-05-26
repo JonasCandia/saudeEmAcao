@@ -17,6 +17,28 @@ import {
   Square
 } from 'lucide-react';
 
+const calculateAgeFromBirthDate = (value: string) => {
+  if (!value) return '';
+
+  const birthDate = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(birthDate.getTime())) return '';
+
+  const today = new Date();
+  let years = today.getFullYear() - birthDate.getFullYear();
+  const monthDelta = today.getMonth() - birthDate.getMonth();
+
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) {
+    years -= 1;
+  }
+
+  return Math.max(years, 0);
+};
+
+const trimToUndefined = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
 export const PessoaForm: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -25,9 +47,24 @@ export const PessoaForm: React.FC = () => {
   const isEditMode = !!id;
 
   const [nome, setNome] = useState('');
+  const [nomeSocial, setNomeSocial] = useState('');
   const [idade, setIdade] = useState<number | ''>('');
+  const [dataNascimento, setDataNascimento] = useState('');
   const [sexo, setSexo] = useState<'Masculino' | 'Feminino' | 'Outro'>('Feminino');
+  const [cpf, setCpf] = useState('');
+  const [cns, setCns] = useState('');
+  const [contato, setContato] = useState('');
+  const [email, setEmail] = useState('');
   const [selectedDiseases, setSelectedDiseases] = useState<string[]>([]);
+  const [fumante, setFumante] = useState(false);
+  const [problemaRins, setProblemaRins] = useState(false);
+  const [responsavelFamiliar, setResponsavelFamiliar] = useState(false);
+  const [racaCor, setRacaCor] = useState('');
+  const [nacionalidade, setNacionalidade] = useState('');
+  const [municipioEstado, setMunicipioEstado] = useState('');
+  const [nomeMae, setNomeMae] = useState('');
+  const [nomePai, setNomePai] = useState('');
+  const [nis, setNis] = useState('');
   const [areaAtendimento, setAreaAtendimento] = useState('');
   const [rua, setRua] = useState('');
   const [casa, setCasa] = useState('');
@@ -102,8 +139,23 @@ export const PessoaForm: React.FC = () => {
 
           setNome(data.nome);
           setIdade(data.idade);
+          setNomeSocial(data.nomeSocial || '');
+          setDataNascimento(data.dataNascimento || '');
           setSexo(data.sexo);
+          setCpf(data.cpf || '');
+          setCns(data.cns || '');
+          setContato(data.contato || '');
+          setEmail(data.email || '');
           setSelectedDiseases(data.doencas || []);
+          setFumante(Boolean(data.fumante));
+          setProblemaRins(Boolean(data.problemaRins));
+          setResponsavelFamiliar(Boolean(data.responsavelFamiliar));
+          setRacaCor(data.racaCor || '');
+          setNacionalidade(data.nacionalidade || '');
+          setMunicipioEstado(data.municipioEstado || '');
+          setNomeMae(data.nomeMae || '');
+          setNomePai(data.nomePai || '');
+          setNis(data.nis || '');
           setAreaAtendimento(data.areaAtendimento);
           setRua(data.rua);
           setCasa(data.casa);
@@ -163,6 +215,24 @@ export const PessoaForm: React.FC = () => {
     // Clean diseases list (if empty, default to "Nenhuma")
     const diseasesToSave = selectedDiseases.length > 0 ? selectedDiseases : ['Nenhuma'];
 
+    const optionalFields = {
+      nomeSocial: trimToUndefined(nomeSocial),
+      dataNascimento: trimToUndefined(dataNascimento),
+      cpf: trimToUndefined(cpf),
+      cns: trimToUndefined(cns),
+      contato: trimToUndefined(contato),
+      email: trimToUndefined(email),
+      racaCor: trimToUndefined(racaCor),
+      nacionalidade: trimToUndefined(nacionalidade),
+      municipioEstado: trimToUndefined(municipioEstado),
+      nomeMae: trimToUndefined(nomeMae),
+      nomePai: trimToUndefined(nomePai),
+      nis: trimToUndefined(nis),
+      ...(fumante ? { fumante: true } : {}),
+      ...(problemaRins ? { problemaRins: true } : {}),
+      ...(responsavelFamiliar ? { responsavelFamiliar: true } : {})
+    };
+
     try {
       if (isEditMode && id) {
         // Edit record
@@ -181,6 +251,7 @@ export const PessoaForm: React.FC = () => {
         const payload: any = {
           nome: nome.trim(),
           idade: Number(idade),
+          ...optionalFields,
           sexo,
           doencas: diseasesToSave,
           areaAtendimento: areaAtendimento.trim(),
@@ -206,6 +277,7 @@ export const PessoaForm: React.FC = () => {
         const payload: any = {
           nome: nome.trim(),
           idade: Number(idade),
+          ...optionalFields,
           sexo,
           doencas: diseasesToSave,
           areaAtendimento: areaAtendimento.trim(),
@@ -300,6 +372,20 @@ export const PessoaForm: React.FC = () => {
               </div>
             </div>
 
+            <div className="sm:col-span-3">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Nome Social
+              </label>
+              <input
+                type="text"
+                value={nomeSocial}
+                onChange={(e) => setNomeSocial(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Preencha se a pessoa utiliza nome social"
+                id="form-nome-social"
+              />
+            </div>
+
             {/* Age */}
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
@@ -321,8 +407,28 @@ export const PessoaForm: React.FC = () => {
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Data de Nascimento
+              </label>
+              <input
+                type="date"
+                value={dataNascimento}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setDataNascimento(nextValue);
+                  const nextAge = calculateAgeFromBirthDate(nextValue);
+                  if (nextAge !== '') {
+                    setIdade(nextAge);
+                  }
+                }}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30 h-[42px]"
+                id="form-data-nascimento"
+              />
+            </div>
+
             {/* Gender Selection */}
-            <div className="sm:col-span-2">
+            <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
                 Sexo Biológico *
               </label>
@@ -347,6 +453,209 @@ export const PessoaForm: React.FC = () => {
                 })}
               </div>
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                CPF
+              </label>
+              <input
+                type="text"
+                value={cpf}
+                onChange={(e) => setCpf(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="000.000.000-00"
+                id="form-cpf"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                CNS
+              </label>
+              <input
+                type="text"
+                value={cns}
+                onChange={(e) => setCns(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Cartão Nacional de Saúde"
+                id="form-cns"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Contato
+              </label>
+              <input
+                type="tel"
+                value={contato}
+                onChange={(e) => setContato(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Telefone ou celular"
+                id="form-contato"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                E-mail
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="email@exemplo.com"
+                id="form-email"
+              />
+            </div>
+          </div>
+
+          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
+            <HeartPulse className="w-5 h-5 text-emerald-600" />
+            Identificação Complementar
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Raça/Cor
+              </label>
+              <input
+                type="text"
+                value={racaCor}
+                onChange={(e) => setRacaCor(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Ex: Branca"
+                id="form-raca-cor"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Nacionalidade
+              </label>
+              <input
+                type="text"
+                value={nacionalidade}
+                onChange={(e) => setNacionalidade(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Ex: Brasileira"
+                id="form-nacionalidade"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Município/Estado
+              </label>
+              <input
+                type="text"
+                value={municipioEstado}
+                onChange={(e) => setMunicipioEstado(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Ex: Novo Hamburgo/RS"
+                id="form-municipio-estado"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Número NIS (PIS/PASEP)
+              </label>
+              <input
+                type="text"
+                value={nis}
+                onChange={(e) => setNis(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Informe o NIS se houver"
+                id="form-nis"
+              />
+            </div>
+          </div>
+
+          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
+            <User className="w-5 h-5 text-emerald-600" />
+            Filiação e Referência Familiar
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Nome Completo da Mãe
+              </label>
+              <input
+                type="text"
+                value={nomeMae}
+                onChange={(e) => setNomeMae(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Nome da mãe"
+                id="form-nome-mae"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                Nome Completo do Pai
+              </label>
+              <input
+                type="text"
+                value={nomePai}
+                onChange={(e) => setNomePai(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-800 outline-none transition-all focus:ring-1 focus:ring-emerald-500/30"
+                placeholder="Nome do pai"
+                id="form-nome-pai"
+              />
+            </div>
+          </div>
+
+          <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">
+            <HeartCrack className="w-5 h-5 text-emerald-600" />
+            Marcadores da Ficha
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              {
+                id: 'form-responsavel-familiar',
+                checked: responsavelFamiliar,
+                label: 'Responsável familiar',
+                onClick: () => setResponsavelFamiliar((prev) => !prev)
+              },
+              {
+                id: 'form-fumante',
+                checked: fumante,
+                label: 'Fumante',
+                onClick: () => setFumante((prev) => !prev)
+              },
+              {
+                id: 'form-problema-rins',
+                checked: problemaRins,
+                label: 'Problema nos rins',
+                onClick: () => setProblemaRins((prev) => !prev)
+              }
+            ].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={option.onClick}
+                className={`p-3.5 border rounded-xl flex items-center gap-3 transition-all cursor-pointer text-left ${
+                  option.checked
+                    ? 'border-emerald-500 bg-emerald-50/50 text-slate-900 shadow-3xs'
+                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                }`}
+                id={option.id}
+              >
+                <span className="shrink-0">
+                  {option.checked ? (
+                    <CheckSquare className="w-5 h-5 text-emerald-600 stroke-2" />
+                  ) : (
+                    <Square className="w-5 h-5 text-slate-350 stroke-1" />
+                  )}
+                </span>
+                <span className="text-xs font-semibold tracking-wide">{option.label}</span>
+              </button>
+            ))}
           </div>
 
           <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-150 pb-2 pt-4 flex items-center gap-2">

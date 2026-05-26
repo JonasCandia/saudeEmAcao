@@ -1,9 +1,24 @@
 export interface Pessoa {
   id?: string;
   nome: string;
+  nomeSocial?: string;
   idade: number;
+  dataNascimento?: string;
   sexo: 'Masculino' | 'Feminino' | 'Outro';
+  cpf?: string;
+  cns?: string;
+  contato?: string;
+  email?: string;
   doencas: string[];
+  fumante?: boolean;
+  problemaRins?: boolean;
+  responsavelFamiliar?: boolean;
+  racaCor?: string;
+  nacionalidade?: string;
+  municipioEstado?: string;
+  nomeMae?: string;
+  nomePai?: string;
+  nis?: string;
   areaAtendimento: string; // Flat name for display and fallback
   rua: string;              // Flat name for display and fallback
   casa: string;             // Number / complement

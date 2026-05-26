@@ -31,18 +31,33 @@ service cloud.firestore {
     // PESSOA ENTITY VALIDATION
     function isValidPessoa(data) {
       return data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100
+        && (!('nomeSocial' in data) || (data.nomeSocial is string && data.nomeSocial.size() <= 100))
         && data.idade is number && data.idade >= 0 && data.idade <= 120
+        && (!('dataNascimento' in data) || (data.dataNascimento is string && data.dataNascimento.matches('^\\d{4}-\\d{2}-\\d{2}$')))
         && data.sexo is string && (data.sexo == 'Masculino' || data.sexo == 'Feminino' || data.sexo == 'Outro')
+        && (!('cpf' in data) || (data.cpf is string && data.cpf.size() <= 20))
+        && (!('cns' in data) || (data.cns is string && data.cns.size() <= 30))
+        && (!('contato' in data) || (data.contato is string && data.contato.size() <= 30))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 120))
         && data.doencas is list && data.doencas.size() <= 10
+        && (!('fumante' in data) || data.fumante is bool)
+        && (!('problemaRins' in data) || data.problemaRins is bool)
+        && (!('responsavelFamiliar' in data) || data.responsavelFamiliar is bool)
+        && (!('racaCor' in data) || (data.racaCor is string && data.racaCor.size() <= 40))
+        && (!('nacionalidade' in data) || (data.nacionalidade is string && data.nacionalidade.size() <= 80))
+        && (!('municipioEstado' in data) || (data.municipioEstado is string && data.municipioEstado.size() <= 120))
+        && (!('nomeMae' in data) || (data.nomeMae is string && data.nomeMae.size() <= 100))
+        && (!('nomePai' in data) || (data.nomePai is string && data.nomePai.size() <= 100))
+        && (!('nis' in data) || (data.nis is string && data.nis.size() <= 30))
         && data.areaAtendimento is string && data.areaAtendimento.size() > 0 && data.areaAtendimento.size() <= 100
         && data.rua is string && data.rua.size() > 0 && data.rua.size() <= 150
         && data.casa is string && data.casa.size() > 0 && data.casa.size() <= 50
-        && (!data.keys().contains('areaId') || (data.areaId is string && isValidId(data.areaId)))
-        && (!data.keys().contains('ruaId') || (data.ruaId is string && isValidId(data.ruaId)))
-        && (!data.keys().contains('visitaPendente') || data.visitaPendente is bool)
+        && (!('areaId' in data) || (data.areaId is string && isValidId(data.areaId)))
+        && (!('ruaId' in data) || (data.ruaId is string && isValidId(data.ruaId)))
+        && (!('visitaPendente' in data) || data.visitaPendente is bool)
         && data.ownerId == request.auth.uid
         && data.keys().hasAll(['nome', 'idade', 'sexo', 'doencas', 'areaAtendimento', 'rua', 'casa', 'createdAt', 'updatedAt', 'ownerId'])
-        && data.keys().size() >= 10 && data.keys().size() <= 13;
+        && data.keys().size() >= 10 && data.keys().size() <= 28;
     }
 
     match /pessoas/{pessoaId} {
@@ -51,8 +66,8 @@ service cloud.firestore {
         && isValidPessoa(incoming())
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
-        && (!incoming().keys().contains('areaId') || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
-        && (!incoming().keys().contains('ruaId') || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
+        && (!('areaId' in incoming()) || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
+        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
         
       allow update: if isSignedIn()
         && isValidId(pessoaId)
@@ -61,8 +76,8 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().ownerId == existing().ownerId
-        && (!incoming().keys().contains('areaId') || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
-        && (!incoming().keys().contains('ruaId') || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
+        && (!('areaId' in incoming()) || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
+        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
         
       allow delete: if isSignedIn()
         && isOwner(existing());
@@ -77,10 +92,10 @@ service cloud.firestore {
     // AREA ENTITY VALIDATION
     function isValidArea(data) {
       return data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100
-        && (!data.keys().contains('descricao') || (data.descricao is string && data.descricao.size() <= 500))
+        && (!('descricao' in data) || (data.descricao is string && data.descricao.size() <= 500))
         && data.ownerId == request.auth.uid
         && data.keys().hasAll(['nome', 'createdAt', 'ownerId'])
-        && (data.keys().size() == 3 || (data.keys().size() == 4 && data.keys().contains('descricao')));
+        && (data.keys().size() == 3 || (data.keys().size() == 4 && 'descricao' in data));
     }
 
     match /areas/{areaId} {
