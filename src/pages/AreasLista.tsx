@@ -10,6 +10,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc, 
+  deleteField,
   serverTimestamp 
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
@@ -146,9 +147,10 @@ export const AreasLista: React.FC = () => {
       if (selectedArea && selectedArea.id) {
         // Update Area doc
         const areaRef = doc(db, 'areas', selectedArea.id);
+        const trimmedDescricaoEdit = areaDescricao.trim();
         await updateDoc(areaRef, {
           nome: areaNome.trim(),
-          descricao: areaDescricao.trim() || null,
+          descricao: trimmedDescricaoEdit ? trimmedDescricaoEdit : deleteField(),
         });
 
         // Also if we renamed an Area, we update flat representation on people linked to it!
