@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   collection, 
@@ -6,7 +6,6 @@ import {
   where, 
   onSnapshot, 
   doc, 
-  addDoc, 
   setDoc,
   updateDoc,
   deleteDoc, 
@@ -22,9 +21,7 @@ import {
   Trash2, 
   Map, 
   AlertTriangle, 
-  FileText, 
   PlusCircle, 
-  Info,
   Route,
   Users
 } from 'lucide-react';
@@ -199,7 +196,6 @@ export const AreasLista: React.FC = () => {
 
       setIsModalOpen(false);
     } catch (err: any) {
-      console.error(err);
       try {
         handleFirestoreError(err, selectedArea ? OperationType.UPDATE : OperationType.CREATE, 'areas');
       } catch (formattedError: any) {
@@ -247,8 +243,7 @@ export const AreasLista: React.FC = () => {
       setIsCascadeDeleteOpen(false);
       setAreaToDelete(null);
     } catch (err: any) {
-      console.error(err);
-      alert('Falha ao excluir a área: ' + err.message);
+      setErrorMsg(`Falha ao excluir a área. ${err.message}`);
     } finally {
       setDeletingCascaded(false);
     }
@@ -273,19 +268,23 @@ export const AreasLista: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Upper Navigation panel */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-3">
           <h2 className="font-display font-bold text-2xl tracking-tight text-slate-900">
             Áreas de Atendimento (Territórios)
           </h2>
-          <p className="text-slate-500 text-sm mt-1">
+          <p className="max-w-2xl text-sm leading-6 text-slate-500">
             Cadastre as microáreas de atuação do seu bairro ou comunidade.
           </p>
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            <Map className="h-3.5 w-3.5" />
+            {areas.length} {areas.length === 1 ? 'área ativa' : 'áreas ativas'}
+          </div>
         </div>
 
         <button
           onClick={openCreateModal}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-sm rounded-xl shadow-md shadow-emerald-600/10 transition-all self-start sm:self-auto cursor-pointer"
+          className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-600/10 transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 active:bg-emerald-800 sm:self-auto"
           id="btn-new-area"
         >
           <Plus className="w-5 h-5" />
@@ -294,9 +293,9 @@ export const AreasLista: React.FC = () => {
       </div>
 
       {errorMsg && (
-        <div className="p-4 bg-rose-50 text-rose-700 text-sm rounded-xl border border-rose-100 flex gap-2">
-          <AlertTriangle className="w-5 h-5 shrink-0" />
-          <span>{errorMsg}</span>
+        <div className="flex gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <span className="leading-6">{errorMsg}</span>
         </div>
       )}
 
@@ -308,68 +307,85 @@ export const AreasLista: React.FC = () => {
             return (
               <div 
                 key={area.id} 
-                className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden group"
+                className="flex h-full flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-950/5 transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-lg hover:shadow-emerald-950/5"
               >
-                {/* Visual marker decoration */}
-                <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-500" />
-                
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
-                      <Map className="w-5 h-5" />
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="rounded-xl bg-emerald-50 p-2 text-emerald-700 ring-1 ring-emerald-100">
+                        <Map className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="truncate font-display text-lg font-bold text-slate-900">{area.nome}</h3>
+                        <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+                          Microárea territorial
+                        </p>
+                      </div>
                     </div>
-                    <h3 className="font-display font-bold text-lg text-slate-905 truncate">{area.nome}</h3>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openEditModal(area)}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                        title="Editar informações da área"
+                        aria-label={`Editar área ${area.nome}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCheck(area)}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+                        title="Remover área"
+                        aria-label={`Remover área ${area.nome}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  <p className="text-slate-500 text-sm h-10 overflow-hidden line-clamp-2">
-                    {area.descricao || <span className="text-slate-350 italic">Sem descrição disponível</span>}
+                  <p className="min-h-12 text-sm leading-6 text-slate-500">
+                    {area.descricao || <span className="italic text-slate-400">Sem descrição cadastrada.</span>}
                   </p>
 
-                  {/* Tiny metadata metrics row */}
-                  <div className="flex items-center gap-4 pt-2 text-xs font-semibold text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Route className="w-3.5 h-3.5 text-slate-400" />
-                      {totalRuasVal} {totalRuasVal === 1 ? 'Rua' : 'Ruas'}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5 text-slate-400" />
-                      {totalMoradoresVal} {totalMoradoresVal === 1 ? 'Cadastro' : 'Cadastros'}
-                    </span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <Route className="h-4 w-4" />
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Ruas</span>
+                      </div>
+                      <p className="mt-2 text-lg font-semibold text-slate-900">{totalRuasVal}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <Users className="h-4 w-4" />
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Cadastros</span>
+                      </div>
+                      <p className="mt-2 text-lg font-semibold text-slate-900">{totalMoradoresVal}</p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 border-t border-slate-100 pt-4 mt-5 justify-end">
-                  <button
-                    onClick={() => openEditModal(area)}
-                    className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-700 rounded-lg transition-colors cursor-pointer"
-                    title="Editar informações da área"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteCheck(area)}
-                    className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                    title="Remover Área"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <div className="mt-5 border-t border-slate-100 pt-4 text-xs font-medium text-slate-500">
+                  {totalMoradoresVal > 0
+                    ? 'Use a edição para ajustar o nome ou a descrição da microárea.'
+                    : 'Área pronta para receber ruas e moradores vinculados.'}
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        <div className="py-20 text-center bg-white rounded-2xl border border-slate-200">
-          <div className="p-4 bg-slate-50 text-slate-400 inline-block rounded-2xl mb-4">
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm shadow-slate-950/5">
+          <div className="mb-4 inline-flex rounded-2xl bg-slate-50 p-4 text-slate-400 ring-1 ring-slate-200">
             <Map className="w-10 h-10" />
           </div>
-          <h3 className="font-display font-semibold text-slate-705 text-lg">Nenhuma área registrada</h3>
-          <p className="text-slate-400 text-xs mt-1 max-w-sm mx-auto leading-relaxed">
+          <h3 className="font-display text-lg font-semibold text-slate-900">Nenhuma área registrada</h3>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
             Cadastre sua primeira microárea de trabalho (ex: "Jardim Primavera") para poder vincular as ruas e seus respectivos domicílios.
           </p>
           <button
             onClick={openCreateModal}
-            className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-sm rounded-xl transition-all cursor-pointer"
+            className="mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
           >
             <PlusCircle className="w-4 h-4" />
             <span>Cadastrar Área</span>
@@ -379,8 +395,8 @@ export const AreasLista: React.FC = () => {
 
       {/* CREATE / EDIT MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-slate-150 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
             <div className="h-1.5 bg-emerald-600" />
             <div className="p-6">
               <div className="flex justify-between items-start mb-6">
@@ -388,18 +404,19 @@ export const AreasLista: React.FC = () => {
                   <h3 className="text-slate-900 font-display font-bold text-lg">
                     {selectedArea ? 'Editar Área' : 'Nova Área Territorial'}
                   </h3>
-                  <p className="text-slate-400 text-xs mt-0.5">Defina as características da área de amostragem clínica.</p>
+                  <p className="mt-1 text-sm leading-5 text-slate-500">Defina as características da microárea para manter o território bem organizado.</p>
                 </div>
                 <button
                   onClick={() => setIsModalOpen(false)}
-                  className="hover:bg-slate-100 rounded text-slate-400 font-semibold p-1 px-1.5 text-sm cursor-pointer"
+                  className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                  aria-label="Fechar modal de área"
                 >
                   ✕
                 </button>
               </div>
 
               {modalError && (
-                <div className="mb-4 p-3 bg-rose-50 text-rose-750 text-xs rounded-xl border border-rose-100 flex gap-2">
+                <div className="mb-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   <span>{modalError}</span>
                 </div>
@@ -407,7 +424,7 @@ export const AreasLista: React.FC = () => {
 
               <form onSubmit={handleSaveArea} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  <label htmlFor="area-name-input" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Nome da Microárea *
                   </label>
                   <input
@@ -416,14 +433,14 @@ export const AreasLista: React.FC = () => {
                     value={areaNome}
                     onChange={(e) => setAreaNome(e.target.value)}
                     maxLength={100}
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-700 outline-none transition-all"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/15"
                     placeholder="Ex: Jardim Primavera / Microárea 02"
                     id="area-name-input"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  <label htmlFor="area-desc-input" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Breve Descrição / Pontos de Referência (Opcional)
                   </label>
                   <textarea
@@ -431,11 +448,11 @@ export const AreasLista: React.FC = () => {
                     onChange={(e) => setAreaDescricao(e.target.value)}
                     maxLength={500}
                     rows={3}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl text-sm font-medium text-slate-700 outline-none transition-all placeholder-slate-400"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/15"
                     placeholder="Ex: Próximo à praça central e ao posto de saúde secundário."
                     id="area-desc-input"
                   />
-                  <div className="text-right text-[10px] text-slate-350 font-mono mt-0.5">
+                  <div className="mt-1 text-right font-mono text-[10px] text-slate-400">
                     {areaDescricao.length}/500 caracteres
                   </div>
                 </div>
@@ -445,14 +462,14 @@ export const AreasLista: React.FC = () => {
                     type="button"
                     disabled={savingArea}
                     onClick={() => setIsModalOpen(false)}
-                    className="px-4 py-2 hover:bg-slate-150 rounded-xl text-slate-600 font-bold text-sm transition-all cursor-pointer"
+                    className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Descartar
                   </button>
                   <button
                     type="submit"
                     disabled={savingArea}
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-500/10 transition-all cursor-pointer"
+                    className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white shadow-md shadow-emerald-500/10 transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 active:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span>{savingArea ? 'Gravando...' : 'Salvar Alterações'}</span>
                   </button>
@@ -465,9 +482,9 @@ export const AreasLista: React.FC = () => {
 
       {/* CASCADE DELETE WARNING MODAL */}
       {isCascadeDeleteOpen && areaToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-slate-150 overflow-hidden">
-            <div className="h-1.5 bg-rose-650" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="h-1.5 bg-rose-600" />
             <div className="p-6">
               <div className="flex gap-3 text-rose-600 items-start mb-4">
                 <div className="p-2 bg-rose-50 rounded-xl shrink-0">
@@ -475,23 +492,23 @@ export const AreasLista: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-display font-semibold text-slate-900 text-lg leading-6">Excluir Área: {areaToDelete.nome}</h3>
-                  <p className="text-slate-500 text-xs mt-1">Essa operação causará alterações em cascata irreversíveis:</p>
+                  <p className="mt-1 text-sm leading-5 text-slate-500">Essa operação causará alterações em cascata irreversíveis.</p>
                 </div>
               </div>
 
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-150 mb-6 space-y-2 text-xs">
-                <div className="flex justify-between font-semibold text-slate-650">
+              <div className="mb-6 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                <div className="flex items-center justify-between gap-4 font-semibold text-slate-700">
                   <span>Ruas pertencentes a esta área:</span>
                   <span className="font-mono text-rose-600">{ruas.filter(r => r.areaId === areaToDelete.id).length} cadastros</span>
                 </div>
-                <p className="text-slate-450 leading-relaxed">
+                <p className="leading-6 text-slate-500">
                   As ruas pertencentes a esta microárea serão excluídas permanentemente.
                 </p>
-                <div className="flex justify-between font-semibold text-slate-655 pt-2 border-t border-slate-200/50">
+                <div className="flex items-center justify-between gap-4 border-t border-slate-200 pt-3 font-semibold text-slate-700">
                   <span>Moradores associados:</span>
                   <span className="font-mono text-emerald-600">{pessoas.filter(p => p.areaId === areaToDelete.id).length} cadastros</span>
                 </div>
-                <p className="text-slate-450 leading-relaxed">
+                <p className="leading-6 text-slate-500">
                   Os moradores associados continuarão cadastrados, contudo os campos correspondentes à Área e Rua serão limpos para reatribuição.
                 </p>
               </div>
@@ -501,7 +518,7 @@ export const AreasLista: React.FC = () => {
                   type="button"
                   disabled={deletingCascaded}
                   onClick={() => setIsCascadeDeleteOpen(false)}
-                  className="px-4 py-2 hover:bg-slate-150 text-slate-600 rounded-xl font-bold text-sm transition-all cursor-pointer"
+                  className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Cancelar
                 </button>
@@ -509,7 +526,7 @@ export const AreasLista: React.FC = () => {
                   type="button"
                   disabled={deletingCascaded}
                   onClick={executeCascadeDelete}
-                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-sm rounded-xl shadow-md shadow-rose-500/10 transition-all cursor-pointer"
+                  className="rounded-xl bg-rose-600 px-5 py-2 text-sm font-bold text-white shadow-md shadow-rose-500/10 transition-colors hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 active:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
                   id="btn-confirm-delete-area"
                 >
                   <span>{deletingCascaded ? 'Limpando...' : 'Sim, Excluir em Cascata'}</span>
