@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "Pessoa": {
+      "title": "Pessoa",
+      "description": "Representa cada pessoa cadastrada.",
+      "type": "object",
+      "properties": {
+        "nome": { "type": "string", "description": "Nome completo do paciente" },
+        "idade": { "type": "number", "description": "Idade em anos" },
+        "sexo": { "type": "string", "enum": ["Masculino", "Feminino", "Outro"], "description": "Sexo do paciente" },
+        "doencas": { "type": "array", "description": "Doenças crônicas do paciente" },
+        "areaAtendimento": { "type": "string", "description": "Área de cobertura ou atendimento" },
+        "rua": { "type": "string", "description": "Nome da rua do domicílio" },
+        "casa": { "type": "string", "description": "Número ou identificador da casa" },
+        "areaId": { "type": "string", "description": "ID de referência para a coleção areas" },
+        "ruaId": { "type": "string", "description": "ID de referência para a coleção ruas" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Data de última atualização" },
+        "ownerId": { "type": "string", "description": "UID do agente comunitário de saúde dono do registro" }
+      },
+      "required": ["nome", "idade", "sexo", "doencas", "areaAtendimento", "rua", "casa", "createdAt", "updatedAt", "ownerId"]
+    },
+    "Area": {
+      "title": "Area",
+      "description": "Representa uma área cadastrada pelo agente.",
+      "type": "object",
+      "properties": {
+        "nome": { "type": "string", "description": "Nome da área" },
+        "descricao": { "type": "string", "description": "Descrição opcional" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação" },
+        "ownerId": { "type": "string", "description": "UID do agente comunitário de saúde dono da área" }
+      },
+      "required": ["nome", "createdAt", "ownerId"]
+    },
+    "Rua": {
+      "title": "Rua",
+      "description": "Representa uma rua cadastrada vinculada a uma área.",
+      "type": "object",
+      "properties": {
+        "areaId": { "type": "string", "description": "ID de referência para a coleção areas" },
+        "nome": { "type": "string", "description": "Nome da rua" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação" },
+        "ownerId": { "type": "string", "description": "UID do agente comunitário de saúde dono da rua" }
+      },
+      "required": ["areaId", "nome", "createdAt", "ownerId"]
+    },
+    "Atendimento": {
+      "title": "Atendimento",
+      "description": "Representa cada visita de atendimento realizada pelo ACS.",
+      "type": "object",
+      "properties": {
+        "pessoaId": { "type": "string", "description": "ID do paciente cadastrado (coleção pessoas)" },
+        "dataVisita": { "type": "string", "format": "date-time", "description": "Data e hora da visita" },
+        "descricao": { "type": "string", "description": "Relatório ou descrição do atendimento realizado" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação do log" },
+        "ownerId": { "type": "string", "description": "UID do agente que realizou o atendimento" }
+      },
+      "required": ["pessoaId", "dataVisita", "descricao", "createdAt", "ownerId"]
+    }
+  },
+  "firestore": {
+    "pessoas/{pessoaId}": {
+      "schema": "Pessoa",
+      "description": "Coleção de pessoas sob cuidados dos ACS"
+    },
+    "atendimentos/{atendimentoId}": {
+      "schema": "Atendimento",
+      "description": "Coleção de visitas de atendimento registradas para os pacientes"
+    },
+    "areas/{areaId}": {
+      "schema": "Area",
+      "description": "Coleção de áreas cadastradas pelo ACS"
+    },
+    "ruas/{ruaId}": {
+      "schema": "Rua",
+      "description": "Coleção de ruas vinculadas a áreas"
+    }
+  }
+}

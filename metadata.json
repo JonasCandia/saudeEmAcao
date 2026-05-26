@@ -1,0 +1,6 @@
+{
+  "name": "Saúde em Ação - ACS",
+  "description": "Sistema de gestão para Agentes Comunitários de Saúde para acompanhamento de pessoas e registros de visitas domiciliares.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

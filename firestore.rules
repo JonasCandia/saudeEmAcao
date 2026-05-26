@@ -1,0 +1,181 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(resourceData) {
+      return isSignedIn() && resourceData.ownerId == request.auth.uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // PESSOA ENTITY VALIDATION
+    function isValidPessoa(data) {
+      return data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100
+        && data.idade is number && data.idade >= 0 && data.idade <= 120
+        && data.sexo is string && (data.sexo == 'Masculino' || data.sexo == 'Feminino' || data.sexo == 'Outro')
+        && data.doencas is list && data.doencas.size() <= 10
+        && data.areaAtendimento is string && data.areaAtendimento.size() > 0 && data.areaAtendimento.size() <= 100
+        && data.rua is string && data.rua.size() > 0 && data.rua.size() <= 150
+        && data.casa is string && data.casa.size() > 0 && data.casa.size() <= 50
+        && (!data.keys().contains('areaId') || (data.areaId is string && isValidId(data.areaId)))
+        && (!data.keys().contains('ruaId') || (data.ruaId is string && isValidId(data.ruaId)))
+        && (!data.keys().contains('visitaPendente') || data.visitaPendente is bool)
+        && data.ownerId == request.auth.uid
+        && data.keys().hasAll(['nome', 'idade', 'sexo', 'doencas', 'areaAtendimento', 'rua', 'casa', 'createdAt', 'updatedAt', 'ownerId'])
+        && data.keys().size() >= 10 && data.keys().size() <= 13;
+    }
+
+    match /pessoas/{pessoaId} {
+      allow create: if isSignedIn() 
+        && isValidId(pessoaId) 
+        && isValidPessoa(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (!incoming().keys().contains('areaId') || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
+        && (!incoming().keys().contains('ruaId') || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
+        
+      allow update: if isSignedIn()
+        && isValidId(pessoaId)
+        && isOwner(existing())
+        && isValidPessoa(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().ownerId == existing().ownerId
+        && (!incoming().keys().contains('areaId') || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
+        && (!incoming().keys().contains('ruaId') || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)));
+        
+      allow delete: if isSignedIn()
+        && isOwner(existing());
+        
+      allow get: if isSignedIn()
+        && isOwner(existing());
+        
+      allow list: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // AREA ENTITY VALIDATION
+    function isValidArea(data) {
+      return data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100
+        && (!data.keys().contains('descricao') || (data.descricao is string && data.descricao.size() <= 500))
+        && data.ownerId == request.auth.uid
+        && data.keys().hasAll(['nome', 'createdAt', 'ownerId'])
+        && (data.keys().size() == 3 || (data.keys().size() == 4 && data.keys().contains('descricao')));
+    }
+
+    match /areas/{areaId} {
+      allow create: if isSignedIn()
+        && isValidId(areaId)
+        && isValidArea(incoming())
+        && incoming().createdAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(areaId)
+        && isOwner(existing())
+        && isValidArea(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().ownerId == existing().ownerId;
+
+      allow delete: if isSignedIn()
+        && isOwner(existing());
+
+      allow get: if isSignedIn()
+        && isOwner(existing());
+
+      allow list: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // RUA ENTITY VALIDATION
+    function isValidRua(data) {
+      return data.areaId is string && isValidId(data.areaId)
+        && data.nome is string && data.nome.size() > 0 && data.nome.size() <= 150
+        && data.ownerId == request.auth.uid
+        && data.keys().hasAll(['areaId', 'nome', 'createdAt', 'ownerId'])
+        && data.keys().size() == 4;
+    }
+
+    match /ruas/{ruaId} {
+      allow create: if isSignedIn()
+        && isValidId(ruaId)
+        && isValidRua(incoming())
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/areas/$(incoming().areaId))
+        && get(/databases/$(database)/documents/areas/$(incoming().areaId)).data.ownerId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && isValidId(ruaId)
+        && isOwner(existing())
+        && isValidRua(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().ownerId == existing().ownerId
+        && incoming().areaId == existing().areaId;
+
+      allow delete: if isSignedIn()
+        && isOwner(existing());
+
+      allow get: if isSignedIn()
+        && isOwner(existing());
+
+      allow list: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // ATENDIMENTO ENTITY VALIDATION
+    function isValidAtendimento(data) {
+      return data.pessoaId is string && data.pessoaId.size() <= 128
+        && data.dataVisita is timestamp
+        && data.descricao is string && data.descricao.size() > 0 && data.descricao.size() <= 1000
+        && data.ownerId == request.auth.uid
+        && data.keys().hasAll(['pessoaId', 'dataVisita', 'descricao', 'createdAt', 'ownerId'])
+        && data.keys().size() == 5;
+    }
+
+    match /atendimentos/{atendimentoId} {
+      // Relational Sync: prevent orphaned records by checking that the referenced patient exists and is owned by the user
+      allow create: if isSignedIn() 
+        && isValidId(atendimentoId) 
+        && isValidAtendimento(incoming())
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/pessoas/$(incoming().pessoaId))
+        && get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.ownerId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && isValidId(atendimentoId)
+        && isOwner(existing())
+        && isValidAtendimento(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().ownerId == existing().ownerId
+        && incoming().pessoaId == existing().pessoaId; // immutable
+
+      allow delete: if isSignedIn()
+        && isOwner(existing());
+
+      allow get: if isSignedIn()
+        && isOwner(existing());
+
+      allow list: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
