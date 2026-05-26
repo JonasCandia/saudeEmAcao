@@ -164,9 +164,10 @@ export const AreasLista: React.FC = () => {
       } else {
         // Create new Area doc with custom ID to prevent collisions
         const newAreaRef = doc(collection(db, 'areas'));
-        const payload: Area = {
+        const trimmedDescricao = areaDescricao.trim();
+        const payload = {
           nome: areaNome.trim(),
-          descricao: areaDescricao.trim() || undefined,
+          ...(trimmedDescricao ? { descricao: trimmedDescricao } : {}),
           createdAt: serverTimestamp(),
           ownerId: user.uid
         };
