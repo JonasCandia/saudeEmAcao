@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { collection, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, updateDoc, deleteField, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Area, Casa, Rua } from '../types';
+import { Area, Casa, Rua, Territorio } from '../types';
 import { canAccessTerritory } from '../utils/territoryScope';
 import { Home, Plus, Save } from 'lucide-react';
 
@@ -25,62 +25,39 @@ export const CasasLista: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const unsubAreas = onSnapshot(
-      query(collection(db, 'areas'), where('ownerId', '==', user.uid)),
-      (snapshot) => {
-        const list: Area[] = [];
-        snapshot.forEach((item) => {
-          const area = { id: item.id, ...item.data() } as Area;
-          if (!legacyAccess && !areaIds.includes(area.id || '')) return;
-          list.push(area);
-        });
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setAreas(list);
-      }
-    );
+    const territorioRef = doc(db, 'territorio', user.uid);
+    const unsub = onSnapshot(territorioRef, (snap) => {
+      const data = snap.exists() ? (snap.data() as Territorio) : { areas: {}, ruas: {}, casas: {}, ownerId: user.uid };
+      const areasMap = data.areas || {};
+      const ruasMap = data.ruas || {};
+      const casasMap = data.casas || {};
 
-    const unsubRuas = onSnapshot(
-      query(collection(db, 'ruas'), where('ownerId', '==', user.uid)),
-      (snapshot) => {
-        const list: Rua[] = [];
-        snapshot.forEach((item) => {
-          const rua = { id: item.id, ...item.data() } as Rua;
-          if (!canAccessTerritory({
-            areaId: rua.areaId,
-            ruaId: rua.id,
-            scope: { legacyAccess, areaIds, ruaIdsExtras },
-          })) return;
-          list.push(rua);
-        });
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setRuas(list);
-      }
-    );
+      const areasList: Area[] = Object.entries(areasMap)
+        .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, descricao: v.descricao, createdAt: v.createdAt }))
+        .filter(a => legacyAccess || areaIds.includes(a.id || ''))
+        .sort((a, b) => a.nome.localeCompare(b.nome));
 
-    const unsubCasas = onSnapshot(
-      query(collection(db, 'casas'), where('ownerId', '==', user.uid)),
-      (snapshot) => {
-        const list: Casa[] = [];
-        snapshot.forEach((item) => {
-          const casa = { id: item.id, ...item.data() } as Casa;
-          if (!canAccessTerritory({
-            areaId: casa.areaId,
-            ruaId: casa.ruaId,
-            scope: { legacyAccess, areaIds, ruaIdsExtras },
-          })) return;
-          list.push(casa);
-        });
-        list.sort((a, b) => a.identificacao.localeCompare(b.identificacao));
-        setCasas(list);
-        setLoading(false);
-      }
-    );
+      const ruasList: Rua[] = Object.entries(ruasMap)
+        .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, areaId: v.areaId, createdAt: v.createdAt }))
+        .filter(r => canAccessTerritory({ areaId: r.areaId, ruaId: r.id, scope: { legacyAccess, areaIds, ruaIdsExtras } }))
+        .sort((a, b) => a.nome.localeCompare(b.nome));
 
-    return () => {
-      unsubAreas();
-      unsubRuas();
-      unsubCasas();
-    };
+      const casasList: Casa[] = Object.entries(casasMap)
+        .map(([id, v]) => ({
+          id, ownerId: user.uid,
+          identificacao: v.identificacao, complemento: v.complemento, tipoImovel: v.tipoImovel,
+          areaId: v.areaId, ruaId: v.ruaId, createdAt: v.createdAt, updatedAt: v.updatedAt,
+        }))
+        .filter(c => canAccessTerritory({ areaId: c.areaId, ruaId: c.ruaId, scope: { legacyAccess, areaIds, ruaIdsExtras } }))
+        .sort((a, b) => a.identificacao.localeCompare(b.identificacao));
+
+      setAreas(areasList);
+      setRuas(ruasList);
+      setCasas(casasList);
+      setLoading(false);
+    });
+
+    return () => unsub();
   }, [user, legacyAccess, areaIds, ruaIdsExtras]);
 
   const ruasDaArea = useMemo(() => {
@@ -113,30 +90,48 @@ export const CasasLista: React.FC = () => {
 
     setSaving(true);
     try {
+      const territorioRef = doc(db, 'territorio', user.uid);
+      const now = Timestamp.now();
+
       if (editingCasa?.id) {
-        await updateDoc(doc(db, 'casas', editingCasa.id), {
-          areaId,
-          ruaId,
+        const casaId = editingCasa.id;
+        const updatedCasa = {
+          areaId, ruaId,
           identificacao: identificacao.trim(),
           complemento: complemento.trim() || null,
-          updatedAt: serverTimestamp(),
-        });
+          createdAt: editingCasa.createdAt,
+          updatedAt: now,
+        };
+        await setDoc(
+          territorioRef,
+          { ownerId: user.uid, casas: { [casaId]: updatedCasa } },
+          { mergeFields: ['ownerId', `casas.${casaId}`] }
+        );
       } else {
-        const newRef = doc(collection(db, 'casas'));
-        await setDoc(newRef, {
-          areaId,
-          ruaId,
+        const newId = crypto.randomUUID().replace(/-/g, '');
+        const newCasa = {
+          areaId, ruaId,
           identificacao: identificacao.trim(),
           complemento: complemento.trim() || null,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          ownerId: user.uid,
-        });
+          createdAt: now,
+          updatedAt: now,
+        };
+        await setDoc(
+          territorioRef,
+          { ownerId: user.uid, casas: { [newId]: newCasa } },
+          { mergeFields: ['ownerId', `casas.${newId}`] }
+        );
       }
       setModalOpen(false);
     } finally {
       setSaving(false);
     }
+  };
+
+  const deleteCasa = async (casaId: string) => {
+    if (!user) return;
+    const territorioRef = doc(db, 'territorio', user.uid);
+    await updateDoc(territorioRef, { [`casas.${casaId}`]: deleteField() });
   };
 
   const getAreaName = (id?: string) => areas.find((a) => a.id === id)?.nome || 'Área não encontrada';

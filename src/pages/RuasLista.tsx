@@ -8,11 +8,11 @@ import {
   doc, 
   setDoc,
   updateDoc,
-  deleteDoc, 
-  serverTimestamp 
+  deleteField,
+  Timestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
-import { Area, Rua, Pessoa, Atendimento, OperationType } from '../types';
+import { Area, Rua, Pessoa, Atendimento, OperationType, Territorio } from '../types';
 import { canAccessTerritory } from '../utils/territoryScope';
 import { 
   Plus, 
@@ -74,43 +74,30 @@ export const RuasLista: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Fetch Areas
-    const qAreas = query(collection(db, 'areas'), where('ownerId', '==', user.uid));
-    const unsubscribeAreas = onSnapshot(qAreas, (snapshot) => {
-      const list: Area[] = [];
-      snapshot.forEach((doc) => {
-        const area = { id: doc.id, ...doc.data() } as Area;
-        if (!legacyAccess && !areaIds.includes(area.id || '')) {
-          return;
-        }
-        list.push(area);
-      });
-      list.sort((a, b) => a.nome.localeCompare(b.nome));
-      setAreas(list);
-    }, () => {});
+    // Fetch Areas + Ruas from single territorio doc
+    const territorioRef = doc(db, 'territorio', user.uid);
+    const unsubscribeAreas = onSnapshot(territorioRef, (snap) => {
+      const data = snap.exists() ? (snap.data() as Territorio) : { areas: {}, ruas: {}, casas: {}, ownerId: user.uid };
+      const areasMap = data.areas || {};
+      const ruasMap = data.ruas || {};
 
-    // Fetch Ruas
-    const qRuas = query(collection(db, 'ruas'), where('ownerId', '==', user.uid));
-    const unsubscribeRuas = onSnapshot(qRuas, (snapshot) => {
-      const list: Rua[] = [];
-      snapshot.forEach((doc) => {
-        const rua = { id: doc.id, ...doc.data() } as Rua;
-        if (!canAccessTerritory({
-          areaId: rua.areaId,
-          ruaId: rua.id,
-          scope: { legacyAccess, areaIds, ruaIdsExtras },
-        })) {
-          return;
-        }
-        list.push(rua);
-      });
-      list.sort((a, b) => a.nome.localeCompare(b.nome));
-      setRuas(list);
+      const areasList: Area[] = Object.entries(areasMap)
+        .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, descricao: v.descricao, createdAt: v.createdAt }))
+        .filter(a => legacyAccess || areaIds.includes(a.id || ''))
+        .sort((a, b) => a.nome.localeCompare(b.nome));
+
+      const ruasList: Rua[] = Object.entries(ruasMap)
+        .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, areaId: v.areaId, createdAt: v.createdAt }))
+        .filter(r => canAccessTerritory({ areaId: r.areaId, ruaId: r.id, scope: { legacyAccess, areaIds, ruaIdsExtras } }))
+        .sort((a, b) => a.nome.localeCompare(b.nome));
+
+      setAreas(areasList);
+      setRuas(ruasList);
       setLoading(false);
     }, (err) => {
       setLoading(false);
       try {
-        handleFirestoreError(err, OperationType.LIST, 'ruas');
+        handleFirestoreError(err, OperationType.LIST, 'territorio');
       } catch (formattedError: any) {
         setErrorMsg(JSON.parse(formattedError.message).error);
       }
@@ -136,7 +123,6 @@ export const RuasLista: React.FC = () => {
 
     return () => {
       unsubscribeAreas();
-      unsubscribeRuas();
       unsubscribePessoas();
     };
   }, [user, legacyAccess, areaIds, ruaIdsExtras]);
@@ -215,34 +201,36 @@ export const RuasLista: React.FC = () => {
       const areaObj = areas.find(a => a.id === ruaAreaId);
       const areaName = areaObj ? areaObj.nome : '';
 
-      if (selectedRua && selectedRua.id) {
-        // Update Rua
-        const ruaRef = doc(db, 'ruas', selectedRua.id);
-        await updateDoc(ruaRef, {
-          nome: ruaNome.trim(),
-          areaId: ruaAreaId
-        });
+      const territorioRef = doc(db, 'territorio', user.uid);
 
-        // Update flat representations on people associated with this street
-        const linkedPessoas = pessoas.filter(p => p.ruaId === selectedRua.id);
+      if (selectedRua && selectedRua.id) {
+        const ruaId = selectedRua.id;
+        const updatedRua = { nome: ruaNome.trim(), areaId: ruaAreaId, createdAt: selectedRua.createdAt };
+        await setDoc(
+          territorioRef,
+          { ownerId: user.uid, ruas: { [ruaId]: updatedRua } },
+          { mergeFields: ['ownerId', `ruas.${ruaId}`] }
+        );
+
+        // Sync flat names on linked pessoas
+        const linkedPessoas = pessoas.filter(p => p.ruaId === ruaId);
         for (const p of linkedPessoas) {
           if (p.id) {
             await updateDoc(doc(db, 'pessoas', p.id), {
               rua: ruaNome.trim(),
-              areaAtendimento: areaName // If area also changed
+              areaAtendimento: areaName
             });
           }
         }
       } else {
         // Create Rua
-        const newRuaRef = doc(collection(db, 'ruas'));
-        const payload: Rua = {
-          nome: ruaNome.trim(),
-          areaId: ruaAreaId,
-          createdAt: serverTimestamp(),
-          ownerId: user.uid
-        };
-        await setDoc(newRuaRef, payload);
+        const newId = crypto.randomUUID().replace(/-/g, '');
+        const newRua = { nome: ruaNome.trim(), areaId: ruaAreaId, createdAt: Timestamp.now() };
+        await setDoc(
+          territorioRef,
+          { ownerId: user.uid, ruas: { [newId]: newRua } },
+          { mergeFields: ['ownerId', `ruas.${newId}`] }
+        );
       }
 
       setIsModalOpen(false);
@@ -270,17 +258,18 @@ export const RuasLista: React.FC = () => {
     setDeletingRua(true);
 
     try {
+      const territorioRef = doc(db, 'territorio', user!.uid);
+      const ruaId = ruaToDelete.id;
+
       // Unlink residents first
-      const linkedPessoas = pessoas.filter(p => p.ruaId === ruaToDelete.id);
+      const linkedPessoas = pessoas.filter(p => p.ruaId === ruaId);
       for (const p of linkedPessoas) {
         if (p.id) {
-          await updateDoc(doc(db, 'pessoas', p.id), {
-            ruaId: null
-          });
+          await updateDoc(doc(db, 'pessoas', p.id), { ruaId: null });
         }
       }
 
-      await deleteDoc(doc(db, 'ruas', ruaToDelete.id));
+      await updateDoc(territorioRef, { [`ruas.${ruaId}`]: deleteField() });
       setIsDeleteModalOpen(false);
       setRuaToDelete(null);
     } catch (err: any) {

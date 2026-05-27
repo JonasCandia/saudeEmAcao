@@ -1,19 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  collection,
   doc,
   getDoc,
   onSnapshot,
-  query,
   serverTimestamp,
   setDoc,
-  where,
 } from 'firebase/firestore';
 import { ArrowLeft, CheckSquare, Save, Square } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { db, handleFirestoreError } from '../firebase';
-import { OperationType, Pessoa } from '../types';
+import { OperationType, Pessoa, Territorio } from '../types';
 import { canAccessTerritory } from '../utils/territoryScope';
 import {
   buildPessoaPayloadFromWizard,
@@ -96,77 +93,37 @@ export const PessoaForm: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const unsubAreas = onSnapshot(
-      query(collection(db, 'areas'), where('ownerId', '==', user.uid)),
+    const unsubTerritorio = onSnapshot(
+      doc(db, 'territorio', user.uid),
       (snap) => {
-        const list: AreaOption[] = [];
-        snap.forEach((item) => {
-          const data = item.data() as { nome?: string };
-          if (!legacyAccess && !areaIds.includes(item.id)) {
-            return;
-          }
-          list.push({ id: item.id, nome: data.nome || '' });
-        });
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setAreasList(list);
-      }
-    );
+        const data = snap.exists() ? (snap.data() as Territorio) : { areas: {}, ruas: {}, casas: {}, ownerId: user.uid };
+        const areasMap = data.areas || {};
+        const ruasMap = data.ruas || {};
+        const casasMap = data.casas || {};
 
-    const unsubRuas = onSnapshot(
-      query(collection(db, 'ruas'), where('ownerId', '==', user.uid)),
-      (snap) => {
-        const list: RuaOption[] = [];
-        snap.forEach((item) => {
-          const data = item.data() as { nome?: string; areaId?: string };
-          if (!canAccessTerritory({
-            areaId: data.areaId,
-            ruaId: item.id,
-            scope: { legacyAccess, areaIds, ruaIdsExtras },
-          })) {
-            return;
-          }
-          list.push({ id: item.id, nome: data.nome || '', areaId: data.areaId || '' });
-        });
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setRuasList(list);
-      }
-    );
+        const areasList: AreaOption[] = Object.entries(areasMap)
+          .map(([id, v]) => ({ id, nome: v.nome }))
+          .filter(a => legacyAccess || areaIds.includes(a.id))
+          .sort((a, b) => a.nome.localeCompare(b.nome));
 
-    const unsubCasas = onSnapshot(
-      query(collection(db, 'casas'), where('ownerId', '==', user.uid)),
-      (snap) => {
-        const list: CasaOption[] = [];
-        snap.forEach((item) => {
-          const data = item.data() as {
-            identificacao?: string;
-            complemento?: string;
-            areaId?: string;
-            ruaId?: string;
-          };
-          if (!canAccessTerritory({
-            areaId: data.areaId,
-            ruaId: data.ruaId,
-            scope: { legacyAccess, areaIds, ruaIdsExtras },
-          })) {
-            return;
-          }
-          list.push({
-            id: item.id,
-            identificacao: data.identificacao || '',
-            complemento: data.complemento,
-            areaId: data.areaId || '',
-            ruaId: data.ruaId || '',
-          });
-        });
-        list.sort((a, b) => a.identificacao.localeCompare(b.identificacao));
-        setCasasList(list);
+        const ruasList: RuaOption[] = Object.entries(ruasMap)
+          .map(([id, v]) => ({ id, nome: v.nome, areaId: v.areaId }))
+          .filter(r => canAccessTerritory({ areaId: r.areaId, ruaId: r.id, scope: { legacyAccess, areaIds, ruaIdsExtras } }))
+          .sort((a, b) => a.nome.localeCompare(b.nome));
+
+        const casasList: CasaOption[] = Object.entries(casasMap)
+          .map(([id, v]) => ({ id, identificacao: v.identificacao, complemento: v.complemento, areaId: v.areaId, ruaId: v.ruaId }))
+          .filter(c => canAccessTerritory({ areaId: c.areaId, ruaId: c.ruaId, scope: { legacyAccess, areaIds, ruaIdsExtras } }))
+          .sort((a, b) => a.identificacao.localeCompare(b.identificacao));
+
+        setAreasList(areasList);
+        setRuasList(ruasList);
+        setCasasList(casasList);
       }
     );
 
     return () => {
-      unsubAreas();
-      unsubRuas();
-      unsubCasas();
+      unsubTerritorio();
     };
   }, [user, legacyAccess, areaIds, ruaIdsExtras]);
 
@@ -294,6 +251,10 @@ export const PessoaForm: React.FC = () => {
     const step0Issues = validateWizardStep(0, formData);
     const step1Issues = validateWizardStep(1, formData);
 
+    if (!legacyAccess && !formData.enderecoTerritorio.areaId) {
+      step1Issues.push('Selecione uma área territorial da lista. Configure seu território em "Meu Território" se não houver opções disponíveis.');
+    }
+
     if (step0Issues.length > 0 || step1Issues.length > 0) {
       if (step0Issues.length > 0) {
         setError(step0Issues[0]);
@@ -331,7 +292,7 @@ export const PessoaForm: React.FC = () => {
         });
         navigate(`/pessoa/${id}`);
       } else {
-        const newDocRef = doc(collection(db, 'pessoas'));
+        const newDocRef = doc(db, 'pessoas', crypto.randomUUID().replace(/-/g, ''));
         const basePayload = buildPessoaPayloadFromWizard({
           data: formData,
           ownerId: user.uid,
@@ -461,6 +422,9 @@ export const PessoaForm: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Área de atendimento *</label>
+              {!legacyAccess && areasList.length === 0 && (
+                <p className="text-xs text-amber-600 mb-1.5">Nenhum território configurado. Acesse "Meu Território" para configurar suas áreas antes de cadastrar pessoas.</p>
+              )}
               {areasList.length > 0 ? (
                 <select
                   value={formData.enderecoTerritorio.areaId || ''}

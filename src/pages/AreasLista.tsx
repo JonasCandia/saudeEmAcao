@@ -8,12 +8,11 @@ import {
   doc, 
   setDoc,
   updateDoc,
-  deleteDoc, 
   deleteField,
-  serverTimestamp 
+  Timestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
-import { Area, Rua, Pessoa, OperationType } from '../types';
+import { Area, Rua, Pessoa, OperationType, Territorio } from '../types';
 import { canAccessTerritory } from '../utils/territoryScope';
 import { 
   Plus, 
@@ -48,57 +47,39 @@ export const AreasLista: React.FC = () => {
   const [isCascadeDeleteOpen, setIsCascadeDeleteOpen] = useState(false);
   const [deletingCascaded, setDeletingCascaded] = useState(false);
 
-  // 1. Fetch Areas
+  // 1. Fetch Areas + Ruas from single territorio doc
   useEffect(() => {
     if (!user) return;
 
-    const path = 'areas';
-    const qAreas = query(collection(db, 'areas'), where('ownerId', '==', user.uid));
-    const unsubscribeAreas = onSnapshot(
-      qAreas,
-      (snapshot) => {
-        const list: Area[] = [];
-        snapshot.forEach((doc) => {
-          const area = { id: doc.id, ...doc.data() } as Area;
-          if (!legacyAccess && !areaIds.includes(area.id || '')) {
-            return;
-          }
-          list.push(area);
-        });
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setAreas(list);
+    const territorioRef = doc(db, 'territorio', user.uid);
+    const unsubscribeTerritorio = onSnapshot(
+      territorioRef,
+      (snap) => {
+        const data = snap.exists() ? (snap.data() as Territorio) : { areas: {}, ruas: {}, casas: {}, ownerId: user.uid };
+        const areasMap = data.areas || {};
+        const ruasMap = data.ruas || {};
+
+        const areasList: Area[] = Object.entries(areasMap)
+          .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, descricao: v.descricao, createdAt: v.createdAt }))
+          .filter(a => legacyAccess || areaIds.includes(a.id || ''))
+          .sort((a, b) => a.nome.localeCompare(b.nome));
+
+        const ruasList: Rua[] = Object.entries(ruasMap)
+          .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, areaId: v.areaId, createdAt: v.createdAt }))
+          .filter(r => canAccessTerritory({ areaId: r.areaId, ruaId: r.id, scope: { legacyAccess, areaIds, ruaIdsExtras } }));
+
+        setAreas(areasList);
+        setRuas(ruasList);
         setLoading(false);
       },
       (err) => {
         setLoading(false);
         try {
-          handleFirestoreError(err, OperationType.LIST, path);
+          handleFirestoreError(err, OperationType.LIST, 'territorio');
         } catch (formattedError: any) {
           setErrorMsg(JSON.parse(formattedError.message).error);
         }
       }
-    );
-
-    // Fetch Ruas dynamically to count references
-    const qRuas = query(collection(db, 'ruas'), where('ownerId', '==', user.uid));
-    const unsubscribeRuas = onSnapshot(
-      qRuas,
-      (snapshot) => {
-        const list: Rua[] = [];
-        snapshot.forEach((doc) => {
-          const rua = { id: doc.id, ...doc.data() } as Rua;
-          if (!canAccessTerritory({
-            areaId: rua.areaId,
-            ruaId: rua.id,
-            scope: { legacyAccess, areaIds, ruaIdsExtras },
-          })) {
-            return;
-          }
-          list.push(rua);
-        });
-        setRuas(list);
-      },
-      () => {}
     );
 
     // Fetch Pessoas to update references
@@ -124,8 +105,7 @@ export const AreasLista: React.FC = () => {
     );
 
     return () => {
-      unsubscribeAreas();
-      unsubscribeRuas();
+      unsubscribeTerritorio();
       unsubscribePessoas();
     };
   }, [user, legacyAccess, areaIds, ruaIdsExtras]);
@@ -162,18 +142,24 @@ export const AreasLista: React.FC = () => {
     setModalError(null);
 
     try {
-      if (selectedArea && selectedArea.id) {
-        // Update Area doc
-        const areaRef = doc(db, 'areas', selectedArea.id);
-        const trimmedDescricaoEdit = areaDescricao.trim();
-        await updateDoc(areaRef, {
-          nome: areaNome.trim(),
-          descricao: trimmedDescricaoEdit ? trimmedDescricaoEdit : deleteField(),
-        });
+      const territorioRef = doc(db, 'territorio', user.uid);
 
-        // Also if we renamed an Area, we update flat representation on people linked to it!
-        // We do this dynamically in client logic safely
-        const linkedPessoas = pessoas.filter(p => p.areaId === selectedArea.id);
+      if (selectedArea && selectedArea.id) {
+        const areaId = selectedArea.id;
+        const trimmedDescricaoEdit = areaDescricao.trim();
+        const updatedArea = {
+          nome: areaNome.trim(),
+          createdAt: selectedArea.createdAt,
+          ...(trimmedDescricaoEdit ? { descricao: trimmedDescricaoEdit } : {}),
+        };
+        await setDoc(
+          territorioRef,
+          { ownerId: user.uid, areas: { [areaId]: updatedArea } },
+          { mergeFields: ['ownerId', `areas.${areaId}`] }
+        );
+
+        // Sync flat name on linked pessoas
+        const linkedPessoas = pessoas.filter(p => p.areaId === areaId);
         for (const p of linkedPessoas) {
           if (p.id) {
             await updateDoc(doc(db, 'pessoas', p.id), {
@@ -182,16 +168,19 @@ export const AreasLista: React.FC = () => {
           }
         }
       } else {
-        // Create new Area doc with custom ID to prevent collisions
-        const newAreaRef = doc(collection(db, 'areas'));
+        // Create new area
+        const newId = crypto.randomUUID().replace(/-/g, '');
         const trimmedDescricao = areaDescricao.trim();
-        const payload = {
+        const newArea = {
           nome: areaNome.trim(),
+          createdAt: Timestamp.now(),
           ...(trimmedDescricao ? { descricao: trimmedDescricao } : {}),
-          createdAt: serverTimestamp(),
-          ownerId: user.uid
         };
-        await setDoc(newAreaRef, payload);
+        await setDoc(
+          territorioRef,
+          { ownerId: user.uid, areas: { [newId]: newArea } },
+          { mergeFields: ['ownerId', `areas.${newId}`] }
+        );
       }
 
       setIsModalOpen(false);
@@ -218,16 +207,21 @@ export const AreasLista: React.FC = () => {
     setDeletingCascaded(true);
 
     try {
-      // 1. Delete all ruas in this area
-      const linkedRuas = ruas.filter(r => r.areaId === areaToDelete.id);
-      for (const rua of linkedRuas) {
-        if (rua.id) {
-          await deleteDoc(doc(db, 'ruas', rua.id));
-        }
+      const territorioRef = doc(db, 'territorio', user!.uid);
+      const areaId = areaToDelete.id;
+
+      // 1. Delete all ruas in this area from the territory doc
+      const linkedRuas = ruas.filter(r => r.areaId === areaId);
+      if (linkedRuas.length > 0) {
+        const ruaDeletes: Record<string, any> = {};
+        linkedRuas.forEach(r => {
+          if (r.id) ruaDeletes[`ruas.${r.id}`] = deleteField();
+        });
+        await updateDoc(territorioRef, ruaDeletes);
       }
 
-      // 2. Unlink/null references from pessoas in this area
-      const linkedPessoas = pessoas.filter(p => p.areaId === areaToDelete.id);
+      // 2. Unlink area/rua refs from linked pessoas
+      const linkedPessoas = pessoas.filter(p => p.areaId === areaId);
       for (const p of linkedPessoas) {
         if (p.id) {
           await updateDoc(doc(db, 'pessoas', p.id), {
@@ -237,8 +231,8 @@ export const AreasLista: React.FC = () => {
         }
       }
 
-      // 3. Delete the area document
-      await deleteDoc(doc(db, 'areas', areaToDelete.id));
+      // 3. Delete the area from the territory doc
+      await updateDoc(territorioRef, { [`areas.${areaId}`]: deleteField() });
 
       setIsCascadeDeleteOpen(false);
       setAreaToDelete(null);

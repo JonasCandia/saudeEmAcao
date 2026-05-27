@@ -125,28 +125,9 @@ service cloud.firestore {
         && data.keys().size() <= 13;
     }
 
-    function isValidCasa(data) {
-      return data.areaId is string && isValidId(data.areaId)
-        && data.ruaId is string && isValidId(data.ruaId)
-        && data.identificacao is string && data.identificacao.size() > 0 && data.identificacao.size() <= 80
-        && (!('complemento' in data) || data.complemento is string && data.complemento.size() <= 120)
-        && (!('tipoImovel' in data) || data.tipoImovel is string && data.tipoImovel.size() <= 60)
-        && data.ownerId == request.auth.uid
-        && data.keys().hasAll(['areaId', 'ruaId', 'identificacao', 'createdAt', 'updatedAt', 'ownerId'])
-        && data.keys().hasOnly([
-          'areaId', 'ruaId', 'identificacao', 'complemento', 'tipoImovel', 'createdAt', 'updatedAt', 'ownerId'
-        ]);
-    }
-
     function hasValidCasaReference(data) {
       return !('casaId' in data)
-        || (
-          data.casaId is string
-          && isValidId(data.casaId)
-          && exists(/databases/$(database)/documents/casas/$(data.casaId))
-          && (!('areaId' in data) || get(/databases/$(database)/documents/casas/$(data.casaId)).data.areaId == data.areaId)
-          && (!('ruaId' in data) || get(/databases/$(database)/documents/casas/$(data.casaId)).data.ruaId == data.ruaId)
-        );
+        || (data.casaId is string && isValidId(data.casaId));
     }
 
     function isValidSocioeconomico(data) {
@@ -218,10 +199,7 @@ service cloud.firestore {
         && isValidPessoa(incoming())
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
-        && hasTerritoryAccess(incoming().areaId, incoming().ruaId)
-        && (!('areaId' in incoming()) || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
-        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)))
-        && (!('casaId' in incoming()) || exists(/databases/$(database)/documents/casas/$(incoming().casaId)));
+        && hasTerritoryAccess(incoming().areaId, incoming().ruaId);
         
       allow update: if isSignedIn()
         && isValidId(pessoaId)
@@ -230,10 +208,7 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().ownerId == existing().ownerId
-        && hasTerritoryAccess(incoming().areaId, incoming().ruaId)
-        && (!('areaId' in incoming()) || exists(/databases/$(database)/documents/areas/$(incoming().areaId)))
-        && (!('ruaId' in incoming()) || exists(/databases/$(database)/documents/ruas/$(incoming().ruaId)))
-        && (!('casaId' in incoming()) || exists(/databases/$(database)/documents/casas/$(incoming().casaId)));
+        && hasTerritoryAccess(incoming().areaId, incoming().ruaId);
         
       allow delete: if isSignedIn()
         && isOwner(existing());
@@ -245,108 +220,12 @@ service cloud.firestore {
         && resource.data.ownerId == request.auth.uid;
     }
 
-    match /casas/{casaId} {
-      allow create: if isSignedIn()
-        && isValidId(casaId)
-        && isValidCasa(incoming())
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
-        && hasTerritoryAccess(incoming().areaId, incoming().ruaId)
-        && exists(/databases/$(database)/documents/areas/$(incoming().areaId))
-        && exists(/databases/$(database)/documents/ruas/$(incoming().ruaId));
-
-      allow update: if isSignedIn()
-        && isValidId(casaId)
-        && isOwner(existing())
-        && isValidCasa(incoming())
-        && incoming().ownerId == existing().ownerId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && incoming().areaId == existing().areaId
-        && incoming().ruaId == existing().ruaId
-        && hasTerritoryAccess(existing().areaId, existing().ruaId);
-
-      allow delete: if isSignedIn()
-        && isOwner(existing())
-        && hasTerritoryAccess(existing().areaId, existing().ruaId);
-
-      allow get: if isSignedIn()
-        && isOwner(existing());
-
-      allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
-    }
-
-    // AREA ENTITY VALIDATION
-    function isValidArea(data) {
-      return data.nome is string && data.nome.size() > 0 && data.nome.size() <= 100
-        && (!('descricao' in data) || (data.descricao is string && data.descricao.size() <= 500))
-        && data.ownerId == request.auth.uid
-        && data.keys().hasAll(['nome', 'createdAt', 'ownerId'])
-        && (data.keys().size() == 3 || (data.keys().size() == 4 && 'descricao' in data));
-    }
-
-    match /areas/{areaId} {
-      allow create: if isSignedIn()
-        && isValidId(areaId)
-        && isValidArea(incoming())
-        && incoming().createdAt == request.time;
-
-      allow update: if isSignedIn()
-        && isValidId(areaId)
-        && isOwner(existing())
-        && isValidArea(incoming())
-        && incoming().createdAt == existing().createdAt
-        && incoming().ownerId == existing().ownerId
-        && hasAreaAccess(areaId);
-
-      allow delete: if isSignedIn()
-        && isOwner(existing())
-        && hasAreaAccess(areaId);
-
-      allow get: if isSignedIn()
-        && isOwner(existing());
-
-      allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
-    }
-
-    // RUA ENTITY VALIDATION
-    function isValidRua(data) {
-      return data.areaId is string && isValidId(data.areaId)
-        && data.nome is string && data.nome.size() > 0 && data.nome.size() <= 150
-        && data.ownerId == request.auth.uid
-        && data.keys().hasAll(['areaId', 'nome', 'createdAt', 'ownerId'])
-        && data.keys().size() == 4;
-    }
-
-    match /ruas/{ruaId} {
-      allow create: if isSignedIn()
-        && isValidId(ruaId)
-        && isValidRua(incoming())
-        && incoming().createdAt == request.time
-        && hasAreaAccess(incoming().areaId)
-        && exists(/databases/$(database)/documents/areas/$(incoming().areaId))
-        && get(/databases/$(database)/documents/areas/$(incoming().areaId)).data.ownerId == request.auth.uid;
-
-      allow update: if isSignedIn()
-        && isValidId(ruaId)
-        && isOwner(existing())
-        && isValidRua(incoming())
-        && incoming().createdAt == existing().createdAt
-        && incoming().ownerId == existing().ownerId
-        && hasTerritoryAccess(incoming().areaId, ruaId)
-        && incoming().areaId == existing().areaId;
-
-      allow delete: if isSignedIn()
-        && isOwner(existing())
-        && hasTerritoryAccess(existing().areaId, ruaId);
-
-      allow get: if isSignedIn()
-        && isOwner(existing());
-
-      allow list: if isSignedIn()
-        && resource.data.ownerId == request.auth.uid;
+    // TERRITORIO: single document per user containing all areas, ruas and casas
+    match /territorio/{userId} {
+      allow read: if isSignedIn() && userId == request.auth.uid;
+      allow write: if isSignedIn()
+        && userId == request.auth.uid
+        && incoming().ownerId == request.auth.uid;
     }
 
     // ATENDIMENTO ENTITY VALIDATION

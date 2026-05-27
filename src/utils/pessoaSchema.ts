@@ -120,6 +120,12 @@ function listOrUndefined(values?: string[]) {
   return values;
 }
 
+function stripUndefined<T extends object>(obj: T): T {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined)
+  ) as T;
+}
+
 export function validateWizardStep(step: number, data: PessoaWizardFormData): string[] {
   const errors: string[] = [];
   const age = calculateAgeFromBirthDate(data.identificacao.dataNascimento);
@@ -177,6 +183,9 @@ export function buildPessoaPayloadFromWizard(args: {
     areaAtendimento: data.enderecoTerritorio.areaAtendimento.trim(),
     rua: data.enderecoTerritorio.rua.trim(),
     casa: data.enderecoTerritorio.casa.trim(),
+    areaId: data.enderecoTerritorio.areaId || undefined,
+    ruaId: data.enderecoTerritorio.ruaId || undefined,
+    casaId: data.enderecoTerritorio.casaId || undefined,
   };
 
   const socioeconomico: PessoaSocioeconomico = {
@@ -192,7 +201,7 @@ export function buildPessoaPayloadFromWizard(args: {
     problemasRins: listOrUndefined(data.saude.problemasRins),
   };
 
-  return {
+  return stripUndefined({
     nome: identificacao.nomeCompleto,
     idade: age,
     sexo: (identificacao.sexo || 'Feminino') as SexoBiologico,
@@ -200,15 +209,15 @@ export function buildPessoaPayloadFromWizard(args: {
     areaAtendimento: enderecoTerritorio.areaAtendimento,
     rua: enderecoTerritorio.rua,
     casa: enderecoTerritorio.casa,
-    areaId: enderecoTerritorio.areaId,
-    ruaId: enderecoTerritorio.ruaId,
+    areaId: enderecoTerritorio.areaId || undefined,
+    ruaId: enderecoTerritorio.ruaId || undefined,
     casaId: enderecoTerritorio.casaId || undefined,
     visitaPendente: existing?.visitaPendente || false,
     schemaVersion: 2,
-    identificacao,
-    enderecoTerritorio,
-    socioeconomico,
-    saude,
+    identificacao: stripUndefined(identificacao),
+    enderecoTerritorio: stripUndefined(enderecoTerritorio),
+    socioeconomico: stripUndefined(socioeconomico),
+    saude: stripUndefined(saude),
     ownerId,
-  };
+  });
 }

@@ -9,40 +9,69 @@
         "idade": { "type": "number", "description": "Idade em anos" },
         "sexo": { "type": "string", "enum": ["Masculino", "Feminino", "Outro"], "description": "Sexo do paciente" },
         "doencas": { "type": "array", "description": "Doenças crônicas do paciente" },
-        "areaAtendimento": { "type": "string", "description": "Área de cobertura ou atendimento" },
-        "rua": { "type": "string", "description": "Nome da rua do domicílio" },
+        "areaAtendimento": { "type": "string", "description": "Nome flat da área (denormalizado para exibição)" },
+        "rua": { "type": "string", "description": "Nome flat da rua (denormalizado para exibição)" },
         "casa": { "type": "string", "description": "Número ou identificador da casa" },
-        "areaId": { "type": "string", "description": "ID de referência para a coleção areas" },
-        "ruaId": { "type": "string", "description": "ID de referência para a coleção ruas" },
+        "areaId": { "type": "string", "description": "Chave da área dentro do mapa areas em territorio/{ownerId}" },
+        "ruaId": { "type": "string", "description": "Chave da rua dentro do mapa ruas em territorio/{ownerId}" },
+        "casaId": { "type": "string", "description": "Chave da casa dentro do mapa casas em territorio/{ownerId}" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Data de última atualização" },
         "ownerId": { "type": "string", "description": "UID do agente comunitário de saúde dono do registro" }
       },
       "required": ["nome", "idade", "sexo", "doencas", "areaAtendimento", "rua", "casa", "createdAt", "updatedAt", "ownerId"]
     },
-    "Area": {
-      "title": "Area",
-      "description": "Representa uma área cadastrada pelo agente.",
+    "Territorio": {
+      "title": "Territorio",
+      "description": "Documento único por agente (territorio/{userId}) que armazena todas as áreas, ruas e casas como mapas aninhados. Reduz N+M+P documentos a 1 por usuário.",
       "type": "object",
       "properties": {
-        "nome": { "type": "string", "description": "Nome da área" },
-        "descricao": { "type": "string", "description": "Descrição opcional" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação" },
-        "ownerId": { "type": "string", "description": "UID do agente comunitário de saúde dono da área" }
+        "ownerId": { "type": "string", "description": "UID do agente dono do território" },
+        "areas": {
+          "type": "object",
+          "description": "Mapa de áreas: chave = areaId (gerado no cliente), valor = AreaData",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "nome": { "type": "string" },
+              "descricao": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["nome", "createdAt"]
+          }
+        },
+        "ruas": {
+          "type": "object",
+          "description": "Mapa de ruas: chave = ruaId (gerado no cliente), valor = RuaData",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "nome": { "type": "string" },
+              "areaId": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["nome", "areaId", "createdAt"]
+          }
+        },
+        "casas": {
+          "type": "object",
+          "description": "Mapa de casas: chave = casaId (gerado no cliente), valor = CasaData",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "identificacao": { "type": "string" },
+              "complemento": { "type": "string" },
+              "tipoImovel": { "type": "string" },
+              "areaId": { "type": "string" },
+              "ruaId": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "updatedAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["identificacao", "areaId", "ruaId", "createdAt", "updatedAt"]
+          }
+        }
       },
-      "required": ["nome", "createdAt", "ownerId"]
-    },
-    "Rua": {
-      "title": "Rua",
-      "description": "Representa uma rua cadastrada vinculada a uma área.",
-      "type": "object",
-      "properties": {
-        "areaId": { "type": "string", "description": "ID de referência para a coleção areas" },
-        "nome": { "type": "string", "description": "Nome da rua" },
-        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação" },
-        "ownerId": { "type": "string", "description": "UID do agente comunitário de saúde dono da rua" }
-      },
-      "required": ["areaId", "nome", "createdAt", "ownerId"]
+      "required": ["ownerId", "areas", "ruas", "casas"]
     },
     "Atendimento": {
       "title": "Atendimento",
@@ -67,13 +96,12 @@
       "schema": "Atendimento",
       "description": "Coleção de visitas de atendimento registradas para os pacientes"
     },
-    "areas/{areaId}": {
-      "schema": "Area",
-      "description": "Coleção de áreas cadastradas pelo ACS"
-    },
-    "ruas/{ruaId}": {
-      "schema": "Rua",
-      "description": "Coleção de ruas vinculadas a áreas"
+    "territorio/{userId}": {
+      "schema": "Territorio",
+      "description": "Documento único por agente contendo todas as áreas, ruas e casas como mapas aninhados. Substitui as coleções areas/, ruas/ e casas/ para minimizar o número de documentos no Firestore."
     }
+  },
+  "design_rationale": {
+    "territory_consolidation": "As coleções areas/, ruas/ e casas/ foram consolidadas num único documento territorio/{userId}. Um ACS típico gerencia ~5-20 áreas, ~50-200 ruas e ~500-2000 casas. A soma de objetos (~200 bytes cada) cabe confortavelmente no limite de 1 MB por documento do Firestore. Writes pontuais usam setDoc com mergeFields para atualizar apenas a entrada desejada sem afetar o restante do mapa. Deletes usam updateDoc com deleteField() por chave."
   }
 }

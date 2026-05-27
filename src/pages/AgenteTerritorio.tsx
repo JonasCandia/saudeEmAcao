@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Area, Rua } from '../types';
+import { Area, Rua, Territorio } from '../types';
 import { Save, ShieldCheck } from 'lucide-react';
 
 export const AgenteTerritorio: React.FC = () => {
@@ -20,29 +20,23 @@ export const AgenteTerritorio: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const unsubAreas = onSnapshot(
-      query(collection(db, 'areas'), where('ownerId', '==', user.uid)),
-      (snapshot) => {
-        const list: Area[] = [];
-        snapshot.forEach((item) => list.push({ id: item.id, ...item.data() } as Area));
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setAreas(list);
-      }
-    );
-
-    const unsubRuas = onSnapshot(
-      query(collection(db, 'ruas'), where('ownerId', '==', user.uid)),
-      (snapshot) => {
-        const list: Rua[] = [];
-        snapshot.forEach((item) => list.push({ id: item.id, ...item.data() } as Rua));
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setRuas(list);
+    const unsubTerritorio = onSnapshot(
+      doc(db, 'territorio', user.uid),
+      (snap) => {
+        const data = snap.exists() ? (snap.data() as Territorio) : { areas: {}, ruas: {}, casas: {}, ownerId: user.uid };
+        const areasList: Area[] = Object.entries(data.areas || {})
+          .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, descricao: v.descricao, createdAt: v.createdAt }))
+          .sort((a, b) => a.nome.localeCompare(b.nome));
+        const ruasList: Rua[] = Object.entries(data.ruas || {})
+          .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, areaId: v.areaId, createdAt: v.createdAt }))
+          .sort((a, b) => a.nome.localeCompare(b.nome));
+        setAreas(areasList);
+        setRuas(ruasList);
       }
     );
 
     return () => {
-      unsubAreas();
-      unsubRuas();
+      unsubTerritorio();
     };
   }, [user]);
 

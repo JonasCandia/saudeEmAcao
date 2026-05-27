@@ -107,7 +107,7 @@ export interface Area {
 
 export interface Rua {
   id?: string;
-  areaId: string;           // reference to areas
+  areaId: string;
   nome: string;
   createdAt: any;
   ownerId: string;
@@ -123,6 +123,33 @@ export interface Casa {
   createdAt: any;
   updatedAt: any;
   ownerId: string;
+}
+
+// Dados aninhados dentro do documento territorio/{userId}
+export interface AreaData {
+  nome: string;
+  descricao?: string;
+  createdAt: any;
+}
+export interface RuaData {
+  nome: string;
+  areaId: string;
+  createdAt: any;
+}
+export interface CasaData {
+  identificacao: string;
+  complemento?: string;
+  tipoImovel?: string;
+  areaId: string;
+  ruaId: string;
+  createdAt: any;
+  updatedAt: any;
+}
+export interface Territorio {
+  ownerId: string;
+  areas: Record<string, AreaData>;
+  ruas: Record<string, RuaData>;
+  casas: Record<string, CasaData>;
 }
 
 export interface Atendimento {

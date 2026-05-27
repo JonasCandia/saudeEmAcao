@@ -12,7 +12,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
-import { Pessoa, Atendimento, Area, Rua, OperationType } from '../types';
+import { Pessoa, Atendimento, Area, Rua, OperationType, Territorio } from '../types';
 import { canAccessTerritory } from '../utils/territoryScope';
 import { 
   Calendar,
@@ -81,36 +81,27 @@ export const VisitasPendentes: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Listen to Areas
-    const qAreas = query(collection(db, 'areas'), where('ownerId', '==', user.uid));
-    const unsubscribeAreas = onSnapshot(qAreas, (snapshot) => {
-      const list: Area[] = [];
-      snapshot.forEach(doc => {
-        const area = { id: doc.id, ...doc.data() } as Area;
-        if (!legacyAccess && !areaIds.includes(area.id || '')) {
-          return;
-        }
-        list.push(area);
-      });
-      setAreas(list);
-    });
+    // Listen to Territorio (areas + ruas from single doc)
+    const territorioRef = doc(db, 'territorio', user.uid);
+    const unsubscribeTerritorio = onSnapshot(territorioRef, (snap) => {
+      const data = snap.exists()
+        ? (snap.data() as Territorio)
+        : { areas: {}, ruas: {}, casas: {}, ownerId: user.uid };
 
-    // Listen to Ruas
-    const qRuas = query(collection(db, 'ruas'), where('ownerId', '==', user.uid));
-    const unsubscribeRuas = onSnapshot(qRuas, (snapshot) => {
-      const list: Rua[] = [];
-      snapshot.forEach(doc => {
-        const rua = { id: doc.id, ...doc.data() } as Rua;
-        if (!canAccessTerritory({
-          areaId: rua.areaId,
-          ruaId: rua.id,
+      const areasList: Area[] = Object.entries(data.areas || {})
+        .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome }))
+        .filter(a => legacyAccess || areaIds.includes(a.id || ''));
+
+      const ruasList: Rua[] = Object.entries(data.ruas || {})
+        .map(([id, v]) => ({ id, ownerId: user.uid, nome: v.nome, areaId: v.areaId }))
+        .filter(r => canAccessTerritory({
+          areaId: r.areaId,
+          ruaId: r.id,
           scope: { legacyAccess, areaIds, ruaIdsExtras },
-        })) {
-          return;
-        }
-        list.push(rua);
-      });
-      setRuas(list);
+        }));
+
+      setAreas(areasList);
+      setRuas(ruasList);
     });
 
     // Listen to Patients
@@ -140,8 +131,7 @@ export const VisitasPendentes: React.FC = () => {
     });
 
     return () => {
-      unsubscribeAreas();
-      unsubscribeRuas();
+      unsubscribeTerritorio();
       unsubscribePessoas();
     };
   }, [user, legacyAccess, areaIds, ruaIdsExtras]);
