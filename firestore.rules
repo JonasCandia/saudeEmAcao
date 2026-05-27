@@ -13,51 +13,18 @@ service cloud.firestore {
     }
 
     function isOwner(resourceData) {
-      return isSignedIn() && resourceData.ownerId == request.auth.uid;
+      return resourceData.ownerId == request.auth.uid;
     }
 
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    function agentePath() {
-      return /databases/$(database)/documents/agentes/$(request.auth.uid);
-    }
-
-    function hasLegacyScope() {
-      return !exists(agentePath());
-    }
-
-    function hasAreaAccess(areaId) {
-      return hasLegacyScope()
-        || (
-          areaId is string
-          && exists(agentePath())
-          && get(agentePath()).data.areaIds is list
-          && get(agentePath()).data.areaIds.hasAny([areaId])
-        );
-    }
-
-    function hasRuaExtraAccess(ruaId) {
-      return hasLegacyScope()
-        || (
-          ruaId is string
-          && exists(agentePath())
-          && get(agentePath()).data.ruaIdsExtras is list
-          && get(agentePath()).data.ruaIdsExtras.hasAny([ruaId])
-        );
-    }
-
     function hasTerritoryAccess(areaId, ruaId) {
-      return hasAreaAccess(areaId) || hasRuaExtraAccess(ruaId);
+      let agentePath = /databases/$(database)/documents/agentes/$(request.auth.uid);
+      return !exists(agentePath)
+        || (areaId is string && exists(agentePath) && get(agentePath).data.areaIds is list && get(agentePath).data.areaIds.hasAny([areaId]))
+        || (ruaId is string && exists(agentePath) && get(agentePath).data.ruaIdsExtras is list && get(agentePath).data.ruaIdsExtras.hasAny([ruaId]));
     }
 
     function isValidAgente(data) {
@@ -74,18 +41,17 @@ service cloud.firestore {
     match /agentes/{agenteId} {
       allow create: if isSignedIn()
         && agenteId == request.auth.uid
-        && isValidAgente(incoming())
-        && incoming().ownerId == request.auth.uid;
+        && isValidAgente(request.resource.data)
+        && request.resource.data.ownerId == request.auth.uid;
 
       allow update: if isSignedIn()
         && agenteId == request.auth.uid
-        && isValidAgente(incoming())
-        && isOwner(existing())
-        && incoming().ownerId == existing().ownerId;
+        && isValidAgente(request.resource.data)
+        && isOwner(resource.data)
+        && request.resource.data.ownerId == resource.data.ownerId;
 
       allow get: if isSignedIn()
-        && agenteId == request.auth.uid
-        && ( !exists(/databases/$(database)/documents/agentes/$(agenteId)) || isOwner(existing()) );
+        && agenteId == request.auth.uid;
 
       allow list: if false;
       allow delete: if false;
@@ -123,11 +89,6 @@ service cloud.firestore {
         && (!('telefoneCelular' in data) || (data.telefoneCelular is string && data.telefoneCelular.size() <= 20))
         && (!('email' in data) || (data.email is string && data.email.size() <= 120))
         && data.keys().size() <= 13;
-    }
-
-    function hasValidCasaReference(data) {
-      return !('casaId' in data)
-        || (data.casaId is string && isValidId(data.casaId));
     }
 
     function isValidSocioeconomico(data) {
@@ -175,16 +136,15 @@ service cloud.firestore {
         && data.areaAtendimento is string && data.areaAtendimento.size() > 0 && data.areaAtendimento.size() <= 100
         && data.rua is string && data.rua.size() > 0 && data.rua.size() <= 150
         && data.casa is string && data.casa.size() > 0 && data.casa.size() <= 50
-        && (!('areaId' in data) || (data.areaId is string && isValidId(data.areaId)))
-        && (!('ruaId' in data) || (data.ruaId is string && isValidId(data.ruaId)))
-        && (!('casaId' in data) || (data.casaId is string && isValidId(data.casaId)))
+        && (!('areaId' in data) || (data.areaId is string && data.areaId.size() <= 128 && data.areaId.matches('^[a-zA-Z0-9_-]+$')))
+        && (!('ruaId' in data) || (data.ruaId is string && data.ruaId.size() <= 128 && data.ruaId.matches('^[a-zA-Z0-9_-]+$')))
+        && (!('casaId' in data) || (data.casaId is string && data.casaId.size() <= 128 && data.casaId.matches('^[a-zA-Z0-9_-]+$')))
         && (!('visitaPendente' in data) || data.visitaPendente is bool)
         && (!('schemaVersion' in data) || data.schemaVersion == 2)
         && (!('identificacao' in data) || isValidIdentificacao(data.identificacao))
         && (!('enderecoTerritorio' in data) || isValidEnderecoTerritorio(data.enderecoTerritorio))
         && (!('socioeconomico' in data) || isValidSocioeconomico(data.socioeconomico))
         && (!('saude' in data) || isValidSaude(data.saude))
-        && hasValidCasaReference(data)
         && data.ownerId == request.auth.uid
         && data.keys().hasAll(['nome', 'idade', 'sexo', 'doencas', 'areaAtendimento', 'rua', 'casa', 'createdAt', 'updatedAt', 'ownerId'])
         && data.keys().hasOnly([
@@ -194,28 +154,28 @@ service cloud.firestore {
     }
 
     match /pessoas/{pessoaId} {
-      allow create: if isSignedIn() 
-        && isValidId(pessoaId) 
-        && isValidPessoa(incoming())
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time
-        && hasTerritoryAccess(incoming().areaId, incoming().ruaId);
-        
+      allow create: if isSignedIn()
+        && isValidId(pessoaId)
+        && isValidPessoa(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasTerritoryAccess(request.resource.data.areaId, request.resource.data.ruaId);
+
       allow update: if isSignedIn()
         && isValidId(pessoaId)
-        && isOwner(existing())
-        && isValidPessoa(incoming())
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && incoming().ownerId == existing().ownerId
-        && hasTerritoryAccess(incoming().areaId, incoming().ruaId);
-        
+        && isOwner(resource.data)
+        && isValidPessoa(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.ownerId == resource.data.ownerId
+        && hasTerritoryAccess(request.resource.data.areaId, request.resource.data.ruaId);
+
       allow delete: if isSignedIn()
-        && isOwner(existing());
-        
+        && isOwner(resource.data);
+
       allow get: if isSignedIn()
-        && isOwner(existing());
-        
+        && isOwner(resource.data);
+
       allow list: if isSignedIn()
         && resource.data.ownerId == request.auth.uid;
     }
@@ -225,7 +185,7 @@ service cloud.firestore {
       allow read: if isSignedIn() && userId == request.auth.uid;
       allow write: if isSignedIn()
         && userId == request.auth.uid
-        && incoming().ownerId == request.auth.uid;
+        && request.resource.data.ownerId == request.auth.uid;
     }
 
     // ATENDIMENTO ENTITY VALIDATION
@@ -240,35 +200,35 @@ service cloud.firestore {
 
     match /atendimentos/{atendimentoId} {
       // Relational Sync: prevent orphaned records by checking that the referenced patient exists and is owned by the user
-      allow create: if isSignedIn() 
-        && isValidId(atendimentoId) 
-        && isValidAtendimento(incoming())
-        && incoming().createdAt == request.time
-        && exists(/databases/$(database)/documents/pessoas/$(incoming().pessoaId))
+      allow create: if isSignedIn()
+        && isValidId(atendimentoId)
+        && isValidAtendimento(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId))
         && hasTerritoryAccess(
-          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.areaId,
-          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.ruaId
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.areaId,
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.ruaId
         )
-        && get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.ownerId == request.auth.uid;
+        && get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.ownerId == request.auth.uid;
 
       allow update: if isSignedIn()
         && isValidId(atendimentoId)
-        && isOwner(existing())
-        && isValidAtendimento(incoming())
-        && incoming().createdAt == existing().createdAt
-        && incoming().ownerId == existing().ownerId
-        && exists(/databases/$(database)/documents/pessoas/$(incoming().pessoaId))
+        && isOwner(resource.data)
+        && isValidAtendimento(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.ownerId == resource.data.ownerId
+        && exists(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId))
         && hasTerritoryAccess(
-          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.areaId,
-          get(/databases/$(database)/documents/pessoas/$(incoming().pessoaId)).data.ruaId
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.areaId,
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.ruaId
         )
-        && incoming().pessoaId == existing().pessoaId; // immutable
+        && request.resource.data.pessoaId == resource.data.pessoaId; // immutable
 
       allow delete: if isSignedIn()
-        && isOwner(existing());
+        && isOwner(resource.data);
 
       allow get: if isSignedIn()
-        && isOwner(existing());
+        && isOwner(resource.data);
 
       allow list: if isSignedIn()
         && resource.data.ownerId == request.auth.uid;

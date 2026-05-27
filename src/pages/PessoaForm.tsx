@@ -119,6 +119,25 @@ export const PessoaForm: React.FC = () => {
         setAreasList(areasList);
         setRuasList(ruasList);
         setCasasList(casasList);
+
+        // If the previously selected areaId is no longer accessible, clear it
+        setFormData((prev) => {
+          const currentAreaId = prev.enderecoTerritorio.areaId;
+          if (currentAreaId && !areasList.find(a => a.id === currentAreaId)) {
+            return {
+              ...prev,
+              enderecoTerritorio: {
+                ...prev.enderecoTerritorio,
+                areaId: undefined,
+                areaAtendimento: '',
+                ruaId: undefined,
+                rua: '',
+                casaId: undefined,
+              },
+            };
+          }
+          return prev;
+        });
       }
     );
 
@@ -253,6 +272,8 @@ export const PessoaForm: React.FC = () => {
 
     if (!legacyAccess && !formData.enderecoTerritorio.areaId) {
       step1Issues.push('Selecione uma área territorial da lista. Configure seu território em "Meu Território" se não houver opções disponíveis.');
+    } else if (!legacyAccess && formData.enderecoTerritorio.areaId && !areaIds.includes(formData.enderecoTerritorio.areaId)) {
+      step1Issues.push('A área selecionada não está no seu escopo territorial. Por favor, selecione novamente.');
     }
 
     if (step0Issues.length > 0 || step1Issues.length > 0) {
@@ -269,6 +290,27 @@ export const PessoaForm: React.FC = () => {
     setLoading(true);
     setError(null);
 
+    // DEBUG: log estado do contexto e payload antes do setDoc
+    console.group('[PessoaForm] handleSubmit — diagnóstico');
+    console.log('legacyAccess:', legacyAccess);
+    console.log('areaIds (contexto):', areaIds);
+    console.log('ruaIdsExtras (contexto):', ruaIdsExtras);
+    console.log('areasList (dropdown):', areasList);
+    console.log('formData.enderecoTerritorio:', JSON.parse(JSON.stringify(formData.enderecoTerritorio)));
+    console.groupEnd();
+
+    // DEBUG: verificar se doc agentes/{uid} existe no Firestore agora
+    try {
+      const agenteSnap = await getDoc(doc(db, 'agentes', user.uid));
+      if (agenteSnap.exists()) {
+        console.warn('[PessoaForm] DIAGNÓSTICO: agentes doc EXISTE! Dados:', JSON.stringify(agenteSnap.data()));
+      } else {
+        console.info('[PessoaForm] DIAGNÓSTICO: agentes doc NÃO existe. legacyAccess correto.');
+      }
+    } catch (agenteErr: any) {
+      console.error('[PessoaForm] DIAGNÓSTICO: getDoc agentes falhou:', agenteErr.code, agenteErr.message);
+    }
+
     try {
       if (isEditMode && id) {
         const pessoaRef = doc(db, 'pessoas', id);
@@ -283,13 +325,15 @@ export const PessoaForm: React.FC = () => {
           ownerId: user.uid,
           existing: existingPessoa,
         });
-
-        await setDoc(pessoaRef, {
+        const editFinalPayload = {
           ...basePayload,
           createdAt: existingPessoa.createdAt,
           updatedAt: serverTimestamp(),
           ownerId: existingPessoa.ownerId,
-        });
+        };
+        console.log('[PessoaForm] payload UPDATE (sem serverTimestamp):', JSON.parse(JSON.stringify({ ...editFinalPayload, createdAt: '(serverTimestamp)', updatedAt: '(serverTimestamp)' })));
+
+        await setDoc(pessoaRef, editFinalPayload);
         navigate(`/pessoa/${id}`);
       } else {
         const newDocRef = doc(db, 'pessoas', crypto.randomUUID().replace(/-/g, ''));
@@ -297,12 +341,30 @@ export const PessoaForm: React.FC = () => {
           data: formData,
           ownerId: user.uid,
         });
-
-        await setDoc(newDocRef, {
+        const createFinalPayload = {
           ...basePayload,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
+        };
+        console.log('[PessoaForm] payload CREATE (sem serverTimestamp):', JSON.parse(JSON.stringify({ ...basePayload, createdAt: '(serverTimestamp)', updatedAt: '(serverTimestamp)' })));
+        console.log('[PessoaForm] chaves top-level:', Object.keys({ ...basePayload, createdAt: '(serverTimestamp)', updatedAt: '(serverTimestamp)' }));
+        console.log('[PessoaForm] chaves identificacao:', Object.keys(basePayload.identificacao ?? {}));
+        console.log('[PessoaForm] chaves enderecoTerritorio:', Object.keys(basePayload.enderecoTerritorio ?? {}));
+        console.log('[PessoaForm] chaves socioeconomico:', Object.keys(basePayload.socioeconomico ?? {}));
+        console.log('[PessoaForm] chaves saude:', Object.keys(basePayload.saude ?? {}));
+        // DEBUG VALORES CRÍTICOS
+        console.log('[PessoaForm] VALORES CRÍTICOS:', {
+          cpfCnsCidadao_length: (basePayload.identificacao as any)?.cpfCnsCidadao?.length,
+          cpfCnsCidadao_value: (basePayload.identificacao as any)?.cpfCnsCidadao,
+          nomeCompleto_length: (basePayload.identificacao as any)?.nomeCompleto?.length,
+          dataNascimento: (basePayload.identificacao as any)?.dataNascimento,
+          areaId_top: (basePayload as any).areaId,
+          areaId_endereco: (basePayload.enderecoTerritorio as any)?.areaId,
         });
+        console.log('[PessoaForm] FULL JSON:', JSON.stringify({ ...basePayload, createdAt: 'ts', updatedAt: 'ts' }));
+        console.log('[PessoaForm] docId:', newDocRef.id);
+
+        await setDoc(newDocRef, createFinalPayload);
         navigate('/pessoas');
       }
     } catch (err) {

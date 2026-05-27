@@ -8,7 +8,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { auth } from '../firebase';
 import { db } from '../firebase';
 import { AgenteTerritorio } from '../types';
@@ -37,9 +37,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [hasTerritoryProfile, setHasTerritoryProfile] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    let unsubAgente: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
       setLoading(true);
       setUser(currentUser);
+
+      // Cancel previous agentes listener whenever auth state changes
+      if (unsubAgente) {
+        unsubAgente();
+        unsubAgente = null;
+      }
 
       if (!currentUser) {
         setAreaIds([]);
@@ -50,38 +58,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      try {
-        const agenteRef = doc(db, 'agentes', currentUser.uid);
-        const agenteSnap = await getDoc(agenteRef);
-
-        if (!agenteSnap.exists()) {
-          // Transitional compatibility: while `agentes` profile does not exist,
-          // fallback to legacy owner-level access.
-          setAreaIds([]);
+      const agenteRef = doc(db, 'agentes', currentUser.uid);
+      unsubAgente = onSnapshot(
+        agenteRef,
+        (snap) => {
+          if (!snap.exists()) {
+            // No territory profile: legacy owner-level access
+            setAreaIds([]);
+            setRuaIdsExtras([]);
+            setLegacyAccess(true);
+            setHasTerritoryProfile(false);
+          } else {
+            const profile = snap.data() as AgenteTerritorio;
+            setAreaIds(profile.areaIds || []);
+            setRuaIdsExtras(profile.ruaIdsExtras || []);
+            setLegacyAccess(false);
+            setHasTerritoryProfile(true);
+          }
+          setLoading(false);
+        },
+        () => {
+          // Permission/read failures keep app operational in legacy mode.          console.error('[AuthContext] onSnapshot agentes falhou:', err.code, err.message);          setAreaIds([]);
           setRuaIdsExtras([]);
           setLegacyAccess(true);
           setHasTerritoryProfile(false);
           setLoading(false);
-          return;
         }
-
-        const profile = agenteSnap.data() as AgenteTerritorio;
-        setAreaIds(profile.areaIds || []);
-        setRuaIdsExtras(profile.ruaIdsExtras || []);
-        setLegacyAccess(false);
-        setHasTerritoryProfile(true);
-      } catch {
-        // Permission/read failures keep app operational in legacy mode.
-        setAreaIds([]);
-        setRuaIdsExtras([]);
-        setLegacyAccess(true);
-        setHasTerritoryProfile(false);
-      } finally {
-        setLoading(false);
-      }
+      );
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubAuth();
+      if (unsubAgente) unsubAgente();
+    };
   }, []);
 
   const signInWithEmail = async (email: string, password: string) => {
