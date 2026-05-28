@@ -405,6 +405,7 @@ export const PessoaForm: React.FC = () => {
                 type="text"
                 value={formData.identificacao.cpfCnsCidadao}
                 onChange={(e) => updateIdentificacao('cpfCnsCidadao', e.target.value)}
+                maxLength={20}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
                 placeholder="Somente números"
               />
@@ -449,6 +450,7 @@ export const PessoaForm: React.FC = () => {
                 type="text"
                 value={formData.identificacao.nomeSocial || ''}
                 onChange={(e) => updateIdentificacao('nomeSocial', e.target.value)}
+                maxLength={120}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
               />
             </div>
@@ -475,6 +477,7 @@ export const PessoaForm: React.FC = () => {
                 type="text"
                 value={formData.identificacao.nomeMae || ''}
                 onChange={(e) => updateIdentificacao('nomeMae', e.target.value)}
+                maxLength={120}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
               />
             </div>
@@ -522,6 +525,7 @@ export const PessoaForm: React.FC = () => {
                     updateEndereco('areaAtendimento', e.target.value);
                     updateEndereco('microarea', e.target.value);
                   }}
+                  maxLength={100}
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
                 />
               )}
@@ -554,6 +558,7 @@ export const PessoaForm: React.FC = () => {
                   type="text"
                   value={formData.enderecoTerritorio.rua}
                   onChange={(e) => updateEndereco('rua', e.target.value)}
+                  maxLength={150}
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
                 />
               )}
@@ -600,6 +605,7 @@ export const PessoaForm: React.FC = () => {
                 type="text"
                 value={formData.enderecoTerritorio.casa}
                 onChange={(e) => updateEndereco('casa', e.target.value)}
+                maxLength={50}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
               />
             </div>
