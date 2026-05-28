@@ -48,6 +48,14 @@ const CONDICOES_OPTIONS = [
 
 const DEFICIENCIAS_OPTIONS = ['Auditiva', 'Visual', 'Física', 'Intelectual/Cognitiva', 'TEA', 'Outra'];
 
+function formatPhone(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits.length ? `(${digits}` : '';
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+}
+
 const CRIANCAS_COM_QUEM_FICA_OPTIONS = [
   'Adulto responsável',
   'Outra(s) criança(s)',
@@ -606,6 +614,30 @@ export const PessoaForm: React.FC = () => {
                 value={formData.enderecoTerritorio.casa}
                 onChange={(e) => updateEndereco('casa', e.target.value)}
                 maxLength={50}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Telefone celular</label>
+              <input
+                type="tel"
+                value={formData.enderecoTerritorio.telefoneCelular || ''}
+                onChange={(e) => updateEndereco('telefoneCelular', formatPhone(e.target.value))}
+                maxLength={15}
+                placeholder="(XX) XXXXX-XXXX"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">E-mail</label>
+              <input
+                type="email"
+                value={formData.enderecoTerritorio.email || ''}
+                onChange={(e) => updateEndereco('email', e.target.value)}
+                maxLength={120}
+                placeholder="exemplo@email.com"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
               />
             </div>
