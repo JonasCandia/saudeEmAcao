@@ -12,6 +12,7 @@ export const Login: React.FC = () => {
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -20,6 +21,12 @@ export const Login: React.FC = () => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    if (isSignUp && password !== confirmPassword) {
+      setError('As senhas não coincidem. Verifique e tente novamente.');
+      setLoading(false);
+      return;
+    }
 
     try {
       if (isSignUp) {
@@ -221,6 +228,26 @@ export const Login: React.FC = () => {
                   )}
                 </div>
 
+                {isSignUp && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
+                      Confirmar Senha
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                      <input
+                        type="password"
+                        required
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl focus:ring-1 focus:ring-emerald-500/30 font-medium text-sm text-slate-800 transition-all outline-none"
+                        placeholder="Repita a senha"
+                        id="input-confirm-password"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={loading}
@@ -257,6 +284,7 @@ export const Login: React.FC = () => {
                   onClick={() => {
                     setIsSignUp(!isSignUp);
                     setError(null);
+                    setConfirmPassword('');
                   }}
                   id="btn-toggle-auth-mode"
                 >
