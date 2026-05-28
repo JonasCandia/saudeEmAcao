@@ -22,6 +22,21 @@ export const Login: React.FC = () => {
     setError(null);
     setLoading(true);
 
+    if (!email.trim()) {
+      setError('Informe o e-mail para continuar.');
+      setLoading(false);
+      return;
+    }
+    if (!password) {
+      setError('Informe a senha para continuar.');
+      setLoading(false);
+      return;
+    }
+    if (isSignUp && !confirmPassword) {
+      setError('Confirme a senha para concluir o registro.');
+      setLoading(false);
+      return;
+    }
     if (isSignUp && password !== confirmPassword) {
       setError('As senhas não coincidem. Verifique e tente novamente.');
       setLoading(false);
@@ -188,7 +203,6 @@ export const Login: React.FC = () => {
                     <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                     <input
                       type="email"
-                      required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl focus:ring-1 focus:ring-emerald-500/30 font-medium text-sm text-slate-800 transition-all outline-none"
@@ -206,7 +220,6 @@ export const Login: React.FC = () => {
                     <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                     <input
                       type="password"
-                      required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl focus:ring-1 focus:ring-emerald-500/30 font-medium text-sm text-slate-800 transition-all outline-none"
@@ -237,7 +250,6 @@ export const Login: React.FC = () => {
                       <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
                       <input
                         type="password"
-                        required
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl focus:ring-1 focus:ring-emerald-500/30 font-medium text-sm text-slate-800 transition-all outline-none"
