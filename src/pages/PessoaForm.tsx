@@ -76,6 +76,46 @@ export const PessoaForm: React.FC = () => {
   const [lastStepChange, setLastStepChange] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const SESSION_KEY = 'pessoaForm_draft';
+
+  // Restaura rascunho do sessionStorage ao montar (apenas modo novo)
+  useEffect(() => {
+    if (isEditMode) return;
+    try {
+      const saved = sessionStorage.getItem(SESSION_KEY);
+      if (saved) {
+        setFormData(JSON.parse(saved));
+      }
+    } catch {
+      sessionStorage.removeItem(SESSION_KEY);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persiste rascunho no sessionStorage a cada alteração (apenas modo novo)
+  useEffect(() => {
+    if (isEditMode) return;
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(formData));
+    } catch {
+      // sessionStorage indisponível (modo privado com quota esgotada)
+    }
+  }, [isEditMode, formData]);
+
+  // Avisa o usuário ao sair/recarregar a página se houver dados preenchidos
+  useEffect(() => {
+    const hasData = formData.identificacao.nomeCompleto.trim() !== '' ||
+      formData.identificacao.cpfCnsCidadao.trim() !== '';
+    if (!hasData) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [formData.identificacao.nomeCompleto, formData.identificacao.cpfCnsCidadao]);
+
   const idadeCalculada = useMemo(
     () => calculateAgeFromBirthDate(formData.identificacao.dataNascimento),
     [formData.identificacao.dataNascimento]
@@ -328,6 +368,7 @@ export const PessoaForm: React.FC = () => {
           updatedAt: serverTimestamp(),
         };
         await setDoc(newDocRef, createFinalPayload);
+        sessionStorage.removeItem(SESSION_KEY);
         navigate('/pessoas');
       }
     } catch (err) {
