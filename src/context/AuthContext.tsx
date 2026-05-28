@@ -6,6 +6,7 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
   signInWithPopup,
+  sendPasswordResetEmail,
   GoogleAuthProvider
 } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -24,6 +25,7 @@ interface AuthContextType {
   signUpWithEmail: (email: string, password: string) => Promise<User>;
   signInGoogle: () => Promise<User>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -113,6 +115,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fbSignOut(auth);
   };
 
+  const resetPassword = async (email: string) => {
+    await sendPasswordResetEmail(auth, email);
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -125,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       signUpWithEmail,
       signInGoogle,
       signOut,
+      resetPassword,
     }}>
       {children}
     </AuthContext.Provider>
