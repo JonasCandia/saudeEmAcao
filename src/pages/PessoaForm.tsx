@@ -82,7 +82,8 @@ export const PessoaForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(isEditMode);
   const [lastStepChange, setLastStepChange] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const setError = (msg: string | null) => setErrors(msg ? [msg] : []);
 
   const SESSION_KEY = 'pessoaForm_draft';
 
@@ -294,11 +295,11 @@ export const PessoaForm: React.FC = () => {
   const validateStepOrSetError = (step: number): boolean => {
     const issues = validateWizardStep(step, formData);
     if (issues.length === 0) {
-      setError(null);
+      setErrors([]);
       return true;
     }
 
-    setError(issues[0]);
+    setErrors(issues);
     return false;
   };
 
@@ -330,10 +331,10 @@ export const PessoaForm: React.FC = () => {
 
     if (step0Issues.length > 0 || step1Issues.length > 0) {
       if (step0Issues.length > 0) {
-        setError(step0Issues[0]);
+        setErrors(step0Issues);
         setCurrentStep(0);
       } else {
-        setError(step1Issues[0]);
+        setErrors(step1Issues);
         setCurrentStep(1);
       }
       return;
@@ -843,10 +844,23 @@ export const PessoaForm: React.FC = () => {
         </div>
       </div>
 
-      {error && (
-        <div className="p-4 bg-rose-50 text-rose-700 text-sm rounded-xl border border-rose-100 flex gap-2.5">
-          <span className="font-bold">Aviso:</span>
-          <span>{error}</span>
+      {errors.length > 0 && (
+        <div className="p-4 bg-rose-50 text-rose-700 text-sm rounded-xl border border-rose-100">
+          {errors.length === 1 ? (
+            <div className="flex gap-2.5">
+              <span className="font-bold">Aviso:</span>
+              <span>{errors[0]}</span>
+            </div>
+          ) : (
+            <>
+              <span className="font-bold block mb-1.5">Corrija os seguintes campos:</span>
+              <ul className="list-disc list-inside space-y-0.5">
+                {errors.map((msg, i) => (
+                  <li key={i}>{msg}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 
