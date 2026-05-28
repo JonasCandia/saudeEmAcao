@@ -332,6 +332,12 @@ export const VisitasPendentes: React.FC = () => {
       const [year, month, day] = modalDataVisita.split('-').map(Number);
       const visitLocalDate = new Date(year, month - 1, day, 12, 0, 0);
 
+      if (visitLocalDate > new Date()) {
+        setModalError('A data da visita não pode ser uma data futura.');
+        setSavingVisit(false);
+        return;
+      }
+
       // 1. Create subdocument
       const newVisitRef = doc(collection(db, 'atendimentos'));
       await setDoc(newVisitRef, {
@@ -381,6 +387,12 @@ export const VisitasPendentes: React.FC = () => {
     try {
       const [year, month, day] = bulkDataVisita.split('-').map(Number);
       const visitLocalDate = new Date(year, month - 1, day, 12, 0, 0);
+
+      if (visitLocalDate > new Date()) {
+        setBulkError('A data da visita não pode ser uma data futura.');
+        setSavingBulk(false);
+        return;
+      }
 
       // Batch all writes for atomicity (max 500 ops; 2 ops per person)
       const batch = writeBatch(db);

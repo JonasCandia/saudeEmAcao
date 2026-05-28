@@ -177,7 +177,7 @@ service cloud.firestore {
     // ATENDIMENTO ENTITY VALIDATION
     function isValidAtendimento(data) {
       return data.pessoaId is string && data.pessoaId.size() <= 128
-        && data.dataVisita is timestamp
+        && data.dataVisita is timestamp && data.dataVisita <= request.time
         && data.descricao is string && data.descricao.size() > 0 && data.descricao.size() <= 1000
         && data.ownerId == request.auth.uid
         && data.keys().hasAll(['pessoaId', 'dataVisita', 'descricao', 'createdAt', 'ownerId'])

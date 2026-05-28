@@ -171,6 +171,12 @@ export const PessoaDetalhes: React.FC = () => {
       // Construct native local Date (set seconds/minutes to avoid timestamp validation gaps)
       const visitLocalDate = new Date(year, month - 1, day, 12, 0, 0);
 
+      if (visitLocalDate > new Date()) {
+        setModalError('A data da visita não pode ser uma data futura.');
+        setSavingVisit(false);
+        return;
+      }
+
       // Create payload adhering strictly to the schema (exact keys count: 5 keys):
       // - pessoaId
       // - dataVisita
