@@ -61,7 +61,7 @@ service cloud.firestore {
       return data is map
         && data.keys().hasAll(['cpfCnsCidadao', 'nomeCompleto', 'dataNascimento', 'sexo'])
         && data.cpfCnsCidadao is string && data.cpfCnsCidadao.size() > 0 && data.cpfCnsCidadao.size() <= 20
-        && data.nomeCompleto is string && data.nomeCompleto.size() > 0 && data.nomeCompleto.size() <= 120
+        && data.nomeCompleto is string && data.nomeCompleto.size() > 0 && data.nomeCompleto.size() <= 100
         && data.dataNascimento is string && data.dataNascimento.size() >= 8 && data.dataNascimento.size() <= 20
         && data.sexo is string && (data.sexo == 'Masculino' || data.sexo == 'Feminino' || data.sexo == 'Outro')
         && (!('nomeSocial' in data) || (data.nomeSocial is string && data.nomeSocial.size() <= 120))
