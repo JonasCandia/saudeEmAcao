@@ -178,9 +178,11 @@ export function buildPessoaPayloadFromWizard(args: {
       : '',
   };
 
+  const areaAtendimentoNorm = data.enderecoTerritorio.areaAtendimento.trim();
   const enderecoTerritorio: PessoaEnderecoTerritorio = {
     ...data.enderecoTerritorio,
-    areaAtendimento: data.enderecoTerritorio.areaAtendimento.trim(),
+    areaAtendimento: areaAtendimentoNorm,
+    microarea: areaAtendimentoNorm || undefined,
     rua: data.enderecoTerritorio.rua.trim(),
     casa: data.enderecoTerritorio.casa.trim(),
     areaId: data.enderecoTerritorio.areaId || undefined,

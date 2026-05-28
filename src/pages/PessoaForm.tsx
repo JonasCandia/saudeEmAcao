@@ -73,6 +73,7 @@ export const PessoaForm: React.FC = () => {
 
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(isEditMode);
+  const [lastStepChange, setLastStepChange] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const idadeCalculada = useMemo(
@@ -255,6 +256,7 @@ export const PessoaForm: React.FC = () => {
 
   const handleNext = () => {
     if (!validateStepOrSetError(currentStep)) return;
+    setLastStepChange(Date.now());
     setCurrentStep((prev) => Math.min(prev + 1, STEPS.length - 1));
   };
 
@@ -266,6 +268,8 @@ export const PessoaForm: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (currentStep < STEPS.length - 1) return;
+    if (Date.now() - lastStepChange < 500) return;
 
     const step0Issues = validateWizardStep(0, formData);
     const step1Issues = validateWizardStep(1, formData);
@@ -290,27 +294,6 @@ export const PessoaForm: React.FC = () => {
     setLoading(true);
     setError(null);
 
-    // DEBUG: log estado do contexto e payload antes do setDoc
-    console.group('[PessoaForm] handleSubmit — diagnóstico');
-    console.log('legacyAccess:', legacyAccess);
-    console.log('areaIds (contexto):', areaIds);
-    console.log('ruaIdsExtras (contexto):', ruaIdsExtras);
-    console.log('areasList (dropdown):', areasList);
-    console.log('formData.enderecoTerritorio:', JSON.parse(JSON.stringify(formData.enderecoTerritorio)));
-    console.groupEnd();
-
-    // DEBUG: verificar se doc agentes/{uid} existe no Firestore agora
-    try {
-      const agenteSnap = await getDoc(doc(db, 'agentes', user.uid));
-      if (agenteSnap.exists()) {
-        console.warn('[PessoaForm] DIAGNÓSTICO: agentes doc EXISTE! Dados:', JSON.stringify(agenteSnap.data()));
-      } else {
-        console.info('[PessoaForm] DIAGNÓSTICO: agentes doc NÃO existe. legacyAccess correto.');
-      }
-    } catch (agenteErr: any) {
-      console.error('[PessoaForm] DIAGNÓSTICO: getDoc agentes falhou:', agenteErr.code, agenteErr.message);
-    }
-
     try {
       if (isEditMode && id) {
         const pessoaRef = doc(db, 'pessoas', id);
@@ -331,8 +314,6 @@ export const PessoaForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ownerId: existingPessoa.ownerId,
         };
-        console.log('[PessoaForm] payload UPDATE (sem serverTimestamp):', JSON.parse(JSON.stringify({ ...editFinalPayload, createdAt: '(serverTimestamp)', updatedAt: '(serverTimestamp)' })));
-
         await setDoc(pessoaRef, editFinalPayload);
         navigate(`/pessoa/${id}`);
       } else {
@@ -346,24 +327,6 @@ export const PessoaForm: React.FC = () => {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
-        console.log('[PessoaForm] payload CREATE (sem serverTimestamp):', JSON.parse(JSON.stringify({ ...basePayload, createdAt: '(serverTimestamp)', updatedAt: '(serverTimestamp)' })));
-        console.log('[PessoaForm] chaves top-level:', Object.keys({ ...basePayload, createdAt: '(serverTimestamp)', updatedAt: '(serverTimestamp)' }));
-        console.log('[PessoaForm] chaves identificacao:', Object.keys(basePayload.identificacao ?? {}));
-        console.log('[PessoaForm] chaves enderecoTerritorio:', Object.keys(basePayload.enderecoTerritorio ?? {}));
-        console.log('[PessoaForm] chaves socioeconomico:', Object.keys(basePayload.socioeconomico ?? {}));
-        console.log('[PessoaForm] chaves saude:', Object.keys(basePayload.saude ?? {}));
-        // DEBUG VALORES CRÍTICOS
-        console.log('[PessoaForm] VALORES CRÍTICOS:', {
-          cpfCnsCidadao_length: (basePayload.identificacao as any)?.cpfCnsCidadao?.length,
-          cpfCnsCidadao_value: (basePayload.identificacao as any)?.cpfCnsCidadao,
-          nomeCompleto_length: (basePayload.identificacao as any)?.nomeCompleto?.length,
-          dataNascimento: (basePayload.identificacao as any)?.dataNascimento,
-          areaId_top: (basePayload as any).areaId,
-          areaId_endereco: (basePayload.enderecoTerritorio as any)?.areaId,
-        });
-        console.log('[PessoaForm] FULL JSON:', JSON.stringify({ ...basePayload, createdAt: 'ts', updatedAt: 'ts' }));
-        console.log('[PessoaForm] docId:', newDocRef.id);
-
         await setDoc(newDocRef, createFinalPayload);
         navigate('/pessoas');
       }
@@ -495,6 +458,7 @@ export const PessoaForm: React.FC = () => {
                     const selected = areasList.find((area) => area.id === selectedId);
                     updateEndereco('areaId', selectedId || undefined);
                     updateEndereco('areaAtendimento', selected?.nome || '');
+                    updateEndereco('microarea', selected?.nome || '');
                     updateEndereco('ruaId', undefined);
                     updateEndereco('casaId', undefined);
                     updateEndereco('rua', '');
@@ -512,7 +476,10 @@ export const PessoaForm: React.FC = () => {
                 <input
                   type="text"
                   value={formData.enderecoTerritorio.areaAtendimento}
-                  onChange={(e) => updateEndereco('areaAtendimento', e.target.value)}
+                  onChange={(e) => {
+                    updateEndereco('areaAtendimento', e.target.value);
+                    updateEndereco('microarea', e.target.value);
+                  }}
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
                 />
               )}
@@ -591,16 +558,6 @@ export const PessoaForm: React.FC = () => {
                 type="text"
                 value={formData.enderecoTerritorio.casa}
                 onChange={(e) => updateEndereco('casa', e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Microárea</label>
-              <input
-                type="text"
-                value={formData.enderecoTerritorio.microarea || ''}
-                onChange={(e) => updateEndereco('microarea', e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
               />
             </div>

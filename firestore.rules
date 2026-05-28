@@ -23,8 +23,8 @@ service cloud.firestore {
     function hasTerritoryAccess(areaId, ruaId) {
       let agentePath = /databases/$(database)/documents/agentes/$(request.auth.uid);
       return !exists(agentePath)
-        || (areaId is string && exists(agentePath) && get(agentePath).data.areaIds is list && get(agentePath).data.areaIds.hasAny([areaId]))
-        || (ruaId is string && exists(agentePath) && get(agentePath).data.ruaIdsExtras is list && get(agentePath).data.ruaIdsExtras.hasAny([ruaId]));
+        || (areaId is string && areaId.size() > 0 && get(agentePath).data.areaIds is list && get(agentePath).data.areaIds.hasAny([areaId]))
+        || (ruaId is string && ruaId.size() > 0 && get(agentePath).data.ruaIdsExtras is list && get(agentePath).data.ruaIdsExtras.hasAny([ruaId]));
     }
 
     function isValidAgente(data) {
@@ -93,36 +93,22 @@ service cloud.firestore {
 
     function isValidSocioeconomico(data) {
       return data is map
-        && (!('parentescoResponsavelFamiliar' in data) || (data.parentescoResponsavelFamiliar is string && data.parentescoResponsavelFamiliar.size() <= 80))
-        && (!('frequentaEscolaCreche' in data) || data.frequentaEscolaCreche is bool)
-        && (!('cursoFrequenta' in data) || (data.cursoFrequenta is string && data.cursoFrequenta.size() <= 120))
-        && (!('situacaoMercadoTrabalho' in data) || (data.situacaoMercadoTrabalho is string && data.situacaoMercadoTrabalho.size() <= 120))
+        && (!('parentescoResponsavelFamiliar' in data) || data.parentescoResponsavelFamiliar is string)
+        && (!('cursoFrequenta' in data) || data.cursoFrequenta is string)
+        && (!('situacaoMercadoTrabalho' in data) || data.situacaoMercadoTrabalho is string)
         && (!('criancas0a9ComQuemFica' in data) || data.criancas0a9ComQuemFica is list)
-        && (!('cuidadorTradicional' in data) || data.cuidadorTradicional is bool)
-        && (!('participaGrupoComunitario' in data) || data.participaGrupoComunitario is bool)
-        && (!('planoSaudePrivado' in data) || data.planoSaudePrivado is bool)
-        && (!('membroComunidadeTradicional' in data) || data.membroComunidadeTradicional is bool)
-        && (!('orientacaoSexualInformada' in data) || data.orientacaoSexualInformada is bool)
-        && (!('orientacaoSexual' in data) || (data.orientacaoSexual is string && data.orientacaoSexual.size() <= 60))
-        && (!('identidadeGeneroInformada' in data) || data.identidadeGeneroInformada is bool)
-        && (!('identidadeGenero' in data) || (data.identidadeGenero is string && data.identidadeGenero.size() <= 60))
+        && (!('orientacaoSexual' in data) || data.orientacaoSexual is string)
+        && (!('identidadeGenero' in data) || data.identidadeGenero is string)
+        && (!('frequentaEscolaCreche' in data) || data.frequentaEscolaCreche is bool)
         && data.keys().size() <= 20;
     }
 
     function isValidSaude(data) {
       return data is map
-        && (!('deficiencias' in data) || data.deficiencias is list)
-        && (!('triagemInsegurancaSemDinheiroComida' in data) || data.triagemInsegurancaSemDinheiroComida is bool)
-        && (!('triagemInsegurancaSemComerPorFaltaDinheiro' in data) || data.triagemInsegurancaSemComerPorFaltaDinheiro is bool)
         && (!('condicoesReferidas' in data) || data.condicoesReferidas is list)
-        && (!('doencasRespiratorias' in data) || data.doencasRespiratorias is list)
-        && (!('problemasRins' in data) || data.problemasRins is list)
-        && (!('internacaoUltimos12Meses' in data) || data.internacaoUltimos12Meses is bool)
         && (!('causaInternacao' in data) || (data.causaInternacao is string && data.causaInternacao.size() <= 200))
-        && (!('problemasSaudeMental' in data) || data.problemasSaudeMental is bool)
         && (!('acamado' in data) || data.acamado is bool)
         && (!('domiciliado' in data) || data.domiciliado is bool)
-        && (!('plantasMedicinais' in data) || data.plantasMedicinais is bool)
         && (!('plantasMedicinaisQuais' in data) || (data.plantasMedicinaisQuais is string && data.plantasMedicinaisQuais.size() <= 200))
         && data.keys().size() <= 20;
     }
@@ -136,9 +122,9 @@ service cloud.firestore {
         && data.areaAtendimento is string && data.areaAtendimento.size() > 0 && data.areaAtendimento.size() <= 100
         && data.rua is string && data.rua.size() > 0 && data.rua.size() <= 150
         && data.casa is string && data.casa.size() > 0 && data.casa.size() <= 50
-        && (!('areaId' in data) || (data.areaId is string && data.areaId.size() <= 128 && data.areaId.matches('^[a-zA-Z0-9_-]+$')))
-        && (!('ruaId' in data) || (data.ruaId is string && data.ruaId.size() <= 128 && data.ruaId.matches('^[a-zA-Z0-9_-]+$')))
-        && (!('casaId' in data) || (data.casaId is string && data.casaId.size() <= 128 && data.casaId.matches('^[a-zA-Z0-9_-]+$')))
+        && (!('areaId' in data) || data.areaId is string)
+        && (!('ruaId' in data) || data.ruaId is string)
+        && (!('casaId' in data) || data.casaId is string)
         && (!('visitaPendente' in data) || data.visitaPendente is bool)
         && (!('schemaVersion' in data) || data.schemaVersion == 2)
         && (!('identificacao' in data) || isValidIdentificacao(data.identificacao))
@@ -159,7 +145,7 @@ service cloud.firestore {
         && isValidPessoa(request.resource.data)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
-        && hasTerritoryAccess(request.resource.data.areaId, request.resource.data.ruaId);
+        && hasTerritoryAccess(request.resource.data.get('areaId', ''), request.resource.data.get('ruaId', ''));
 
       allow update: if isSignedIn()
         && isValidId(pessoaId)
@@ -168,7 +154,7 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time
         && request.resource.data.ownerId == resource.data.ownerId
-        && hasTerritoryAccess(request.resource.data.areaId, request.resource.data.ruaId);
+        && hasTerritoryAccess(request.resource.data.get('areaId', ''), request.resource.data.get('ruaId', ''));
 
       allow delete: if isSignedIn()
         && isOwner(resource.data);
@@ -206,8 +192,8 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && exists(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId))
         && hasTerritoryAccess(
-          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.areaId,
-          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.ruaId
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.get('areaId', ''),
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.get('ruaId', '')
         )
         && get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.ownerId == request.auth.uid;
 
@@ -219,8 +205,8 @@ service cloud.firestore {
         && request.resource.data.ownerId == resource.data.ownerId
         && exists(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId))
         && hasTerritoryAccess(
-          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.areaId,
-          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.ruaId
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.get('areaId', ''),
+          get(/databases/$(database)/documents/pessoas/$(request.resource.data.pessoaId)).data.get('ruaId', '')
         )
         && request.resource.data.pessoaId == resource.data.pessoaId; // immutable
 
