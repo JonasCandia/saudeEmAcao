@@ -9,6 +9,7 @@ import {
   setDoc,
   updateDoc,
   deleteField,
+  writeBatch,
   Timestamp
 } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../firebase';
@@ -210,29 +211,27 @@ export const AreasLista: React.FC = () => {
       const territorioRef = doc(db, 'territorio', user!.uid);
       const areaId = areaToDelete.id;
 
-      // 1. Delete all ruas in this area from the territory doc
+      // Build a single batch for atomicity: rua deletes + area delete + pessoa unlinks
+      const batch = writeBatch(db);
+
+      // 1. Delete all ruas + the area itself from the territory doc in one update
+      const territorioUpdates: Record<string, any> = {};
       const linkedRuas = ruas.filter(r => r.areaId === areaId);
-      if (linkedRuas.length > 0) {
-        const ruaDeletes: Record<string, any> = {};
-        linkedRuas.forEach(r => {
-          if (r.id) ruaDeletes[`ruas.${r.id}`] = deleteField();
-        });
-        await updateDoc(territorioRef, ruaDeletes);
-      }
+      linkedRuas.forEach(r => {
+        if (r.id) territorioUpdates[`ruas.${r.id}`] = deleteField();
+      });
+      territorioUpdates[`areas.${areaId}`] = deleteField();
+      batch.update(territorioRef, territorioUpdates);
 
       // 2. Unlink area/rua refs from linked pessoas
       const linkedPessoas = pessoas.filter(p => p.areaId === areaId);
-      for (const p of linkedPessoas) {
+      linkedPessoas.forEach(p => {
         if (p.id) {
-          await updateDoc(doc(db, 'pessoas', p.id), {
-            areaId: null,
-            ruaId: null
-          });
+          batch.update(doc(db, 'pessoas', p.id), { areaId: null, ruaId: null });
         }
-      }
+      });
 
-      // 3. Delete the area from the territory doc
-      await updateDoc(territorioRef, { [`areas.${areaId}`]: deleteField() });
+      await batch.commit();
 
       setIsCascadeDeleteOpen(false);
       setAreaToDelete(null);

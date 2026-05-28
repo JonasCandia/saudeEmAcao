@@ -8,6 +8,7 @@ import {
   doc, 
   setDoc,
   updateDoc, 
+  writeBatch,
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
@@ -381,11 +382,12 @@ export const VisitasPendentes: React.FC = () => {
       const [year, month, day] = bulkDataVisita.split('-').map(Number);
       const visitLocalDate = new Date(year, month - 1, day, 12, 0, 0);
 
-      // Run sequential writes for absolute reliability
+      // Batch all writes for atomicity (max 500 ops; 2 ops per person)
+      const batch = writeBatch(db);
       for (const id of selectedIds) {
         // 1. Create Atendimento doc
         const newVisitRef = doc(collection(db, 'atendimentos'));
-        await setDoc(newVisitRef, {
+        batch.set(newVisitRef, {
           pessoaId: id,
           dataVisita: Timestamp.fromDate(visitLocalDate),
           descricao: bulkDescricao.trim(),
@@ -394,11 +396,12 @@ export const VisitasPendentes: React.FC = () => {
         });
 
         // 2. Clear pending status on Person
-        await updateDoc(doc(db, 'pessoas', id), {
+        batch.update(doc(db, 'pessoas', id), {
           visitaPendente: false,
           updatedAt: serverTimestamp()
         });
       }
+      await batch.commit();
 
       // Complete operations
       setSelectedIds([]);
