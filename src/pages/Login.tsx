@@ -135,6 +135,8 @@ export const Login: React.FC = () => {
               animate={{ scale: 1, opacity: 1 }}
               className="mb-6 p-4 bg-rose-50 text-rose-700 text-sm rounded-xl border border-rose-100 flex gap-2.5 items-start"
               id="auth-alert"
+              role="alert"
+              aria-live="assertive"
             >
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
               <span>{error}</span>
@@ -170,8 +172,9 @@ export const Login: React.FC = () => {
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl focus:ring-1 focus:ring-emerald-500/30 font-medium text-sm text-slate-800 transition-all outline-none"
                     placeholder="nome@saude.gov.br"
-                    id="input-email-reset"
-                  />
+                    id="input-email-reset"                    aria-required="true"
+                    aria-invalid={!!error}
+                    aria-describedby={error ? 'auth-alert' : undefined}                  />
                 </div>
               </div>
               <button
@@ -227,6 +230,9 @@ export const Login: React.FC = () => {
                       className="w-full pl-11 pr-11 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl focus:ring-1 focus:ring-emerald-500/30 font-medium text-sm text-slate-800 transition-all outline-none"
                       placeholder="Sua senha secreta"
                       id="input-password"
+                      aria-required="true"
+                      aria-invalid={!!error}
+                      aria-describedby={error ? 'auth-alert' : undefined}
                     />
                     <button
                       type="button"
@@ -266,6 +272,9 @@ export const Login: React.FC = () => {
                         className="w-full pl-11 pr-11 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-xl focus:ring-1 focus:ring-emerald-500/30 font-medium text-sm text-slate-800 transition-all outline-none"
                         placeholder="Repita a senha"
                         id="input-confirm-password"
+                        aria-required="true"
+                        aria-invalid={!!error}
+                        aria-describedby={error ? 'auth-alert' : undefined}
                       />
                       <button
                         type="button"

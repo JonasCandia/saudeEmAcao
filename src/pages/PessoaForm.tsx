@@ -405,6 +405,9 @@ export const PessoaForm: React.FC = () => {
                 maxLength={100}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
                 placeholder="Nome sem abreviações"
+                aria-required="true"
+                aria-invalid={errors.length > 0}
+                aria-describedby={errors.length > 0 ? 'wizard-errors' : undefined}
               />
             </div>
 
@@ -417,6 +420,9 @@ export const PessoaForm: React.FC = () => {
                 maxLength={20}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
                 placeholder="Somente números"
+                aria-required="true"
+                aria-invalid={errors.length > 0}
+                aria-describedby={errors.length > 0 ? 'wizard-errors' : undefined}
               />
             </div>
 
@@ -427,6 +433,9 @@ export const PessoaForm: React.FC = () => {
                 value={formData.identificacao.dataNascimento}
                 onChange={(e) => updateIdentificacao('dataNascimento', e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-emerald-500"
+                aria-required="true"
+                aria-invalid={errors.length > 0}
+                aria-describedby={errors.length > 0 ? 'wizard-errors' : undefined}
               />
             </div>
 
@@ -845,7 +854,11 @@ export const PessoaForm: React.FC = () => {
       </div>
 
       {errors.length > 0 && (
-        <div className="p-4 bg-rose-50 text-rose-700 text-sm rounded-xl border border-rose-100">
+        <div
+          id="wizard-errors"
+          role="alert"
+          aria-live="assertive"
+          className="p-4 bg-rose-50 text-rose-700 text-sm rounded-xl border border-rose-100">
           {errors.length === 1 ? (
             <div className="flex gap-2.5">
               <span className="font-bold">Aviso:</span>

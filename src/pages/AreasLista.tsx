@@ -409,7 +409,11 @@ export const AreasLista: React.FC = () => {
               </div>
 
               {modalError && (
-                <div className="mb-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                <div
+                  id="area-modal-error"
+                  role="alert"
+                  aria-live="assertive"
+                  className="mb-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   <span>{modalError}</span>
                 </div>
@@ -429,6 +433,9 @@ export const AreasLista: React.FC = () => {
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/15"
                     placeholder="Ex: Jardim Primavera / Microárea 02"
                     id="area-name-input"
+                    aria-required="true"
+                    aria-invalid={!!modalError}
+                    aria-describedby={modalError ? 'area-modal-error' : undefined}
                   />
                 </div>
 
