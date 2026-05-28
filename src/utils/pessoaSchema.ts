@@ -78,6 +78,60 @@ function normalizeDocument(value: string): string {
   return value.replace(/\D/g, '');
 }
 
+/** Valida CPF com algoritmo de dígito verificador (rejeita sequências repetidas). */
+export function isValidCPF(value: string): boolean {
+  const digits = normalizeDocument(value);
+  if (digits.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(digits)) return false; // rejeita 000...000, 111...111, etc.
+
+  const calc = (factor: number) => {
+    let sum = 0;
+    for (let i = 0; i < factor - 1; i++) {
+      sum += parseInt(digits[i]) * (factor - i);
+    }
+    const rem = (sum * 10) % 11;
+    return rem === 10 || rem === 11 ? 0 : rem;
+  };
+
+  return calc(10) === parseInt(digits[9]) && calc(11) === parseInt(digits[10]);
+}
+
+/**
+ * Valida CNS (Cartão Nacional de Saúde) com algoritmo módulo 11.
+ * Aceita CNS provisório (início 7 ou 8) e definitivo (início 1, 2 ou 9).
+ */
+export function isValidCNS(value: string): boolean {
+  const digits = normalizeDocument(value);
+  if (digits.length !== 15) return false;
+
+  const pis = digits.substring(0, 11);
+  let sum = 0;
+  for (let i = 0; i < 11; i++) {
+    sum += parseInt(pis[i]) * (15 - i);
+  }
+
+  let dsp = 0;
+  let resultado = sum % 11;
+
+  if (resultado !== 0) {
+    dsp = 11 - resultado;
+  }
+
+  let cns: string;
+  if (dsp === 0) {
+    cns = pis + '000' + '1';
+  } else if (dsp === 1) {
+    sum += 2;
+    resultado = sum % 11;
+    dsp = resultado === 0 ? 0 : 11 - resultado;
+    cns = pis + '001' + dsp;
+  } else {
+    cns = pis + '00' + dsp;
+  }
+
+  return digits === cns;
+}
+
 export function hydratePessoaWizardFormDataFromPessoa(pessoa: Pessoa): PessoaWizardFormData {
   const defaults = createDefaultPessoaWizardFormData();
   const birthFromAge = pessoa.idade >= 0 && pessoa.idade <= 120
@@ -136,6 +190,12 @@ export function validateWizardStep(step: number, data: PessoaWizardFormData): st
     }
     if (!data.identificacao.cpfCnsCidadao.trim()) {
       errors.push('Informe CPF/CNS do cidadão.');
+    } else {
+      const digits = normalizeDocument(data.identificacao.cpfCnsCidadao);
+      const validDoc = isValidCPF(digits) || isValidCNS(digits);
+      if (!validDoc) {
+        errors.push('CPF ou CNS inválido. Verifique os dígitos informados.');
+      }
     }
     if (!data.identificacao.dataNascimento) {
       errors.push('Informe a data de nascimento.');
