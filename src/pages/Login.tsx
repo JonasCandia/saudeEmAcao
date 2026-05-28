@@ -174,7 +174,8 @@ export const Login: React.FC = () => {
                     placeholder="nome@saude.gov.br"
                     id="input-email-reset"                    aria-required="true"
                     aria-invalid={!!error}
-                    aria-describedby={error ? 'auth-alert' : undefined}                  />
+                    aria-describedby={error ? 'auth-alert' : undefined}
+                    autoComplete="email"                  />
                 </div>
               </div>
               <button
@@ -233,7 +234,7 @@ export const Login: React.FC = () => {
                       aria-required="true"
                       aria-invalid={!!error}
                       aria-describedby={error ? 'auth-alert' : undefined}
-                    />
+                      autoComplete={isSignUp ? 'new-password' : 'current-password'}                      autoComplete="email"                    />
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
@@ -275,6 +276,7 @@ export const Login: React.FC = () => {
                         aria-required="true"
                         aria-invalid={!!error}
                         aria-describedby={error ? 'auth-alert' : undefined}
+                        autoComplete="new-password"
                       />
                       <button
                         type="button"
